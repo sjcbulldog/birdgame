@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Game, GameState, PlayerPosition, PlayerType, Suit } from './entities/game.entity';
 import { Table } from '../tables/entities/table.entity';
+import { AIPlayer } from './ai-player';
 
 interface Card {
   color: Suit | 'bird';
@@ -36,12 +37,15 @@ interface GameStateData {
 @Injectable()
 export class GameService implements OnModuleInit {
   private gateway: any;
+  private aiPlayers: Map<string, Map<PlayerPosition, AIPlayer>>;
 
   constructor(
     @InjectRepository(Game)
     private gameRepository: Repository<Game>,
     private dataSource: DataSource,
-  ) {}
+  ) {
+    this.aiPlayers = new Map();
+  }
 
   onModuleInit() {
   }
@@ -75,10 +79,16 @@ export class GameService implements OnModuleInit {
 
       // Assign player names
       const computerNames = [
-        'Alex', 'Bailey', 'Casey', 'Dakota', 'Emerson',
-        'Finley', 'Gray', 'Harper', 'Indigo', 'Jordan',
-        'Kennedy', 'Logan', 'Morgan', 'Noel', 'Oakley',
-        'Parker', 'Quinn', 'Reese', 'Sage', 'Taylor'
+        'Ada', 'Ajax', 'Alan', 'Algo', 'Alpha', 'Amber', 'Apex', 'Arc', 'Argo', 'Aria',
+        'Atlas', 'Atom', 'Aurora', 'Bash', 'Beta', 'Binary', 'Bit', 'Bolt', 'Bool', 'Boost',
+        'Byte', 'Cache', 'Cargo', 'Cipher', 'Circuit', 'Clang', 'Clojure', 'Cloud', 'Cobalt', 'Codec',
+        'Comet', 'Compile', 'Core', 'Cron', 'Crypto', 'Crystal', 'Cube', 'Curl', 'Cyber', 'Cypher',
+        'Dart', 'Data', 'Debug', 'Delta', 'Deno', 'Diesel', 'Digit', 'Django', 'Daemon', 'Dot',
+        'Echo', 'Edge', 'Electron', 'Ember', 'Ether', 'Exec', 'Fiber', 'Flux', 'Fork', 'Fortran',
+        'Frame', 'Gamma', 'Git', 'Gopher', 'Grace', 'Graph', 'Grep', 'Hack', 'Hash', 'Helix',
+        'Hex', 'Index', 'Iota', 'Ion', 'Iris', 'Java', 'Json', 'Julia', 'Kappa', 'Karma',
+        'Kernel', 'Lambda', 'Laser', 'Lex', 'Linux', 'Lisp', 'Logic', 'Loop', 'Lua', 'Lynx',
+        'Matrix', 'Mega', 'Merge', 'Mint', 'Mojo', 'Nano', 'Neo', 'Neural', 'Nexus', 'Node'
       ];
       const usedNames = new Set<string>();
       
@@ -255,6 +265,9 @@ export class GameService implements OnModuleInit {
       const savedGame = await queryRunner.manager.save(game);
       await queryRunner.commitTransaction();
 
+      // Initialize AI players with current game state
+      await this.initializeAIPlayers(savedGame);
+
       if (this.gateway) {
         this.gateway.emitGameUpdate(savedGame.id);
       }
@@ -407,6 +420,15 @@ export class GameService implements OnModuleInit {
         throw new BadRequestException('Invalid card selection');
       }
 
+      // Store the 6 discarded cards (the ones not selected from the 15-card hand)
+      const discarded = hand.filter(c => !selectedCardIds.includes(c.id));
+
+      // Update AI player with discarded cards knowledge (if AI won the bid)
+      if (game.playerTypes[player] === 'computer') {
+        const aiPlayer = this.getAIPlayer(gameId, player);
+        aiPlayer.setDiscardedCards(discarded);
+      }
+
       game.gameState.hands[player] = selectedCards;
       game.state = GameState.DECLARING_TRUMP;
 
@@ -457,6 +479,9 @@ export class GameService implements OnModuleInit {
 
       const savedGame = await queryRunner.manager.save(game);
       await queryRunner.commitTransaction();
+
+      // Update all AI players with trump suit
+      await this.initializeAIPlayers(savedGame);
 
       if (this.gateway) {
         this.gateway.emitGameUpdate(savedGame.id);
@@ -556,6 +581,9 @@ export class GameService implements OnModuleInit {
       const savedGame = await queryRunner.manager.save(game);
       await queryRunner.commitTransaction();
 
+      // Update AI players with new game state
+      await this.initializeAIPlayers(savedGame);
+
       if (this.gateway) {
         this.gateway.emitGameUpdate(savedGame.id);
       }
@@ -608,6 +636,8 @@ export class GameService implements OnModuleInit {
       // Check for winner
       if (game.northSouthScore >= 500 || game.eastWestScore >= 500) {
         game.state = GameState.COMPLETE;
+        // Cleanup AI players for completed game
+        this.cleanupAIPlayers(gameId);
       } else {
         // Start new hand
         game.state = GameState.NEW;
@@ -767,14 +797,16 @@ export class GameService implements OnModuleInit {
     return points;
   }
 
-  // Computer player methods (basic implementations)
+  // Computer player methods using AIPlayer
   private async computerPlaceBid(gameId: string): Promise<void> {
     try {
       const game = await this.getGame(gameId);
       if (game.state !== GameState.BIDDING) return;
 
-      // Simple strategy: pass for now
-      await this.placeBid(gameId, game.currentBidder, 'pass');
+      const aiPlayer = this.getAIPlayer(gameId, game.currentBidder);
+      const bid = aiPlayer.placeBid(game.highBid, game.gameState.biddingHistory);
+      
+      await this.placeBid(gameId, game.currentBidder, bid);
     } catch (error) {
       console.error('Computer bid error:', error);
     }
@@ -785,9 +817,13 @@ export class GameService implements OnModuleInit {
       const game = await this.getGame(gameId);
       if (game.state !== GameState.SELECTING || !game.highBidder) return;
 
-      const hand = game.gameState.hands[game.highBidder];
-      // Simple strategy: keep first 9 cards
-      const selectedCardIds = hand.slice(0, 9).map(c => c.id);
+      const aiPlayer = this.getAIPlayer(gameId, game.highBidder);
+      const kittyCards = [...game.gameState.kitty.faceDown];
+      if (game.gameState.kitty.faceUp) {
+        kittyCards.push(game.gameState.kitty.faceUp);
+      }
+      
+      const selectedCardIds = aiPlayer.selectCards(kittyCards);
       await this.selectNineCards(gameId, game.highBidder, selectedCardIds);
     } catch (error) {
       console.error('Computer select error:', error);
@@ -799,8 +835,10 @@ export class GameService implements OnModuleInit {
       const game = await this.getGame(gameId);
       if (game.state !== GameState.DECLARING_TRUMP || !game.highBidder) return;
 
-      // Simple strategy: declare red
-      await this.declareTrump(gameId, game.highBidder, 'red');
+      const aiPlayer = this.getAIPlayer(gameId, game.highBidder);
+      const trumpSuit = aiPlayer.declareTrump();
+      
+      await this.declareTrump(gameId, game.highBidder, trumpSuit);
     } catch (error) {
       console.error('Computer trump error:', error);
     }
@@ -819,10 +857,61 @@ export class GameService implements OnModuleInit {
       const hand = game.gameState.hands[player];
       if (hand.length === 0) return;
 
-      // Simple strategy: play first card
-      await this.playCard(gameId, player, hand[0].id);
+      const aiPlayer = this.getAIPlayer(gameId, player);
+      const positionInOrder = currentTrick.cards.length;
+      const cardId = aiPlayer.playCard(currentTrick, positionInOrder);
+      
+      await this.playCard(gameId, player, cardId);
     } catch (error) {
       console.error('Computer play error:', error);
     }
+  }
+
+  /**
+   * Get or create AI player for a game and position
+   */
+  private getAIPlayer(gameId: string, position: PlayerPosition): AIPlayer {
+    if (!this.aiPlayers.has(gameId)) {
+      this.aiPlayers.set(gameId, new Map());
+    }
+
+    const gamePlayers = this.aiPlayers.get(gameId)!;
+    if (!gamePlayers.has(position)) {
+      gamePlayers.set(position, new AIPlayer(position));
+    }
+
+    return gamePlayers.get(position)!;
+  }
+
+  /**
+   * Initialize AI players for a game and update their knowledge
+   */
+  private async initializeAIPlayers(game: Game): Promise<void> {
+    const positions: PlayerPosition[] = ['north', 'east', 'south', 'west'];
+    
+    for (const position of positions) {
+      if (game.playerTypes[position] === 'computer') {
+        const aiPlayer = this.getAIPlayer(game.id, position);
+        
+        // Update hand
+        aiPlayer.updateHand(game.gameState.hands[position]);
+        
+        // Update kitty top card (visible to all)
+        aiPlayer.setKittyTopCard(game.gameState.kitty.faceUp);
+        
+        // Update completed tricks
+        aiPlayer.updateCompletedTricks(game.gameState.completedTricks);
+        
+        // Update trump suit if set
+        aiPlayer.setTrumpSuit(game.trumpSuit);
+      }
+    }
+  }
+
+  /**
+   * Clean up AI players for a completed game
+   */
+  private cleanupAIPlayers(gameId: string): void {
+    this.aiPlayers.delete(gameId);
   }
 }

@@ -38,4 +38,12 @@ export class TableService {
   startGame(tableId: string): Observable<{ success: boolean; gameId: string }> {
     return this.http.post<{ success: boolean; gameId: string }>(`${this.apiUrl}/${tableId}/start-game`, {});
   }
+
+  getPreferences(): Observable<{ tableCount: number; dealAnimationTime: number }> {
+    return this.http.get<{ tableCount: number; dealAnimationTime: number }>(`${this.apiUrl}/preferences`);
+  }
+
+  setPreferences(preferences: { tableCount: number; dealAnimationTime: number }): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/preferences`, preferences);
+  }
 }

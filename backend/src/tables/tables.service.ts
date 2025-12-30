@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { Table } from './entities/table.entity';
 import { TableWatcher } from './entities/table-watcher.entity';
+import { SitePreferences } from './entities/site-preferences.entity';
 import { Position } from './types/position.type';
 import { TableResponseDto, PlayerDto } from './dto/table-response.dto';
 import { GameService } from '../game/game.service';
@@ -16,6 +17,8 @@ export class TablesService implements OnModuleInit {
     private tableRepository: Repository<Table>,
     @InjectRepository(TableWatcher)
     private watcherRepository: Repository<TableWatcher>,
+    @InjectRepository(SitePreferences)
+    private preferencesRepository: Repository<SitePreferences>,
     @Inject(forwardRef(() => GameService))
     private gameService: GameService,
   ) {}
@@ -301,6 +304,108 @@ export class TablesService implements OnModuleInit {
 
     // Emit update via gateway
     if (this.gateway) {
+      this.gateway.emitTableUpdate();
+    }
+  }
+
+  async setTableCount(targetCount: number): Promise<void> {
+    const currentTables = await this.tableRepository.find({
+      order: { tableNumber: 'ASC' },
+    });
+    const currentCount = currentTables.length;
+
+    if (targetCount < currentCount) {
+      // Remove tables starting from highest table number
+      const tablesToRemove = currentTables.slice(targetCount);
+      
+      for (const table of tablesToRemove) {
+        // Delete any games associated with this table
+        try {
+          const game = await this.gameService.getCurrentGameForTable(table.id);
+          if (game) {
+            await this.gameService.deleteGame(game.id);
+          }
+        } catch (error) {
+          // Game might not exist, continue
+        }
+
+        // Remove watchers
+        await this.watcherRepository.delete({ table: { id: table.id } });
+
+        // Delete the table (players will be removed via cascade or explicitly set to null)
+        await this.tableRepository.delete(table.id);
+      }
+
+      // Emit update via gateway
+      if (this.gateway) {
+        this.gateway.emitTableUpdate();
+      }
+    } else if (targetCount > currentCount) {
+      // Add new tables
+      const tablesToCreate = targetCount - currentCount;
+      
+      for (let i = 0; i < tablesToCreate; i++) {
+        const maxTableNumber = await this.tableRepository
+          .createQueryBuilder('table')
+          .select('MAX(table.tableNumber)', 'max')
+          .getRawOne();
+        
+        const nextNumber = (maxTableNumber?.max || 0) + 1;
+        
+        const newTable = this.tableRepository.create({
+          tableNumber: nextNumber,
+        });
+        await this.tableRepository.save(newTable);
+      }
+
+      // Emit update via gateway
+      if (this.gateway) {
+        this.gateway.emitTableUpdate();
+      }
+    }
+
+    // Ensure at least 3 empty tables after adjustment
+    await this.ensureMinimumEmptyTables(3);
+  }
+
+  async getPreferences(): Promise<SitePreferences> {
+    let preferences = await this.preferencesRepository.findOne({ where: {} });
+    
+    if (!preferences) {
+      // Create default preferences if they don't exist
+      preferences = this.preferencesRepository.create({
+        tableCount: 3,
+        dealAnimationTime: 10000,
+      });
+      await this.preferencesRepository.save(preferences);
+    }
+    
+    return preferences;
+  }
+
+  async setPreferences(updates: { tableCount?: number; dealAnimationTime?: number }): Promise<void> {
+    let preferences = await this.preferencesRepository.findOne({ where: {} });
+    
+    if (!preferences) {
+      preferences = this.preferencesRepository.create({
+        tableCount: 3,
+        dealAnimationTime: 10000,
+      });
+    }
+    
+    if (updates.tableCount !== undefined) {
+      preferences.tableCount = updates.tableCount;
+      await this.setTableCount(updates.tableCount);
+    }
+    
+    if (updates.dealAnimationTime !== undefined) {
+      preferences.dealAnimationTime = updates.dealAnimationTime;
+    }
+    
+    await this.preferencesRepository.save(preferences);
+    
+    // Emit update via gateway if animation time changed
+    if (updates.dealAnimationTime !== undefined && this.gateway) {
       this.gateway.emitTableUpdate();
     }
   }

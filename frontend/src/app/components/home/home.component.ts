@@ -1,5 +1,6 @@
 import { Component, OnInit, signal, inject } from '@angular/core';
 import { Router } from '@angular/router';
+import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../services/auth.service';
 import { TableService } from '../../services/table.service';
 import { SocketService } from '../../services/socket.service';
@@ -8,7 +9,7 @@ import { Table, Position } from '../../models/table.model';
 
 @Component({
   selector: 'app-home',
-  imports: [],
+  imports: [FormsModule],
   templateUrl: './home.component.html',
   styleUrls: ['./home.component.scss']
 })
@@ -21,6 +22,10 @@ export class HomeComponent implements OnInit {
   currentUser: User | null = null;
   tables = signal<Table[]>([]);
   errorMessage = signal<string | null>(null);
+  showMenu = false;
+  showPreferencesDialog = false;
+  tableCount = 3;
+  dealAnimationTime = 10000;
 
   ngOnInit(): void {
     this.authService.currentUser$.subscribe(user => {
@@ -138,7 +143,62 @@ export class HomeComponent implements OnInit {
   }
 
   logout(): void {
+    this.showMenu = false;
     this.authService.logout();
     this.router.navigate(['/login']);
+  }
+
+  toggleMenu(): void {
+    this.showMenu = !this.showMenu;
+  }
+
+  openPreferences(): void {
+    this.showMenu = false;
+    this.showPreferencesDialog = true;
+    // Load current preferences
+    this.tableService.getPreferences().subscribe({
+      next: (prefs) => {
+        this.tableCount = prefs.tableCount;
+        this.dealAnimationTime = prefs.dealAnimationTime;
+      },
+      error: (error) => {
+        console.error('Error loading preferences:', error);
+        this.tableCount = this.tables().length;
+        this.dealAnimationTime = 10000;
+      }
+    });
+  }
+
+  cancelPreferences(): void {
+    this.showPreferencesDialog = false;
+  }
+
+  savePreferences(): void {
+    if (this.tableCount < 3 || this.tableCount > 36) {
+      this.errorMessage.set('Table count must be between 3 and 36');
+      setTimeout(() => this.errorMessage.set(null), 3000);
+      return;
+    }
+
+    if (this.dealAnimationTime < 1000 || this.dealAnimationTime > 42000) {
+      this.errorMessage.set('Deal animation time must be between 1000 and 42000 milliseconds');
+      setTimeout(() => this.errorMessage.set(null), 3000);
+      return;
+    }
+
+    this.tableService.setPreferences({
+      tableCount: this.tableCount,
+      dealAnimationTime: this.dealAnimationTime
+    }).subscribe({
+      next: () => {
+        this.showPreferencesDialog = false;
+        // Tables will be updated via WebSocket
+      },
+      error: (error) => {
+        console.error('Error setting preferences:', error);
+        this.errorMessage.set('Failed to update preferences');
+        setTimeout(() => this.errorMessage.set(null), 3000);
+      }
+    });
   }
 }

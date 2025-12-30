@@ -30,6 +30,21 @@
       font-size: 24px;
     }
 
+    .game-state-display {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 16px;
+      font-weight: 600;
+      color: #333;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      padding: 4px 16px;
+      white-space: nowrap;
+    }
+
     .nav-actions {
       display: flex;
       align-items: center;
@@ -38,6 +53,29 @@
       .user-info {
         color: #666;
         font-size: 14px;
+      }
+
+      .btn-leave {
+        padding: 8px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+        transition: all 0.2s ease;
+
+        &:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        &:active {
+          transform: translateY(0);
+          box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+        }
       }
     }
   }
@@ -51,11 +89,11 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 4px 20px 20px 20px;
 }
 
 .card-table {
-  width: 1024px;
+  width: 1280px;
   height: 1024px;
   background: radial-gradient(ellipse at center, #2d5f2e 0%, #1e4620 100%);
   border-radius: 40px;
@@ -83,6 +121,21 @@
   cursor: pointer;
   transition: background-color 0.2s;
 
+  &.btn-menu {
+    background: transparent;
+    color: #333;
+    font-size: 24px;
+    padding: 8px 12px;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.2s;
+    position: relative;
+
+    &:hover {
+      transform: scale(1.1);
+    }
+  }
+
   &.btn-logout {
     background: #dc3545;
     color: white;
@@ -92,12 +145,63 @@
     }
   }
 
+  &.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 10px 24px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+    }
+  }
+
   &.btn-secondary {
     background: #6c757d;
     color: white;
 
     &:hover {
       background: #5a6268;
+    }
+  }
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  background: white;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  min-width: 150px;
+  z-index: 1000;
+
+  .menu-item {
+    display: block;
+    padding: 12px 16px;
+    color: #333;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.2s;
+
+    &:hover {
+      background-color: #f5f7fa;
+    }
+
+    &:first-child {
+      border-radius: 4px 4px 0 0;
+    }
+
+    &:last-child {
+      border-radius: 0 0 4px 4px;
     }
   }
 }
@@ -146,5 +250,42 @@
     gap: 12px;
     justify-content: flex-end;
     margin-top: 24px;
+  }
+}
+
+.preferences-dialog {
+  max-width: 500px;
+
+  .preference-item {
+    margin: 20px 0;
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #333;
+      font-weight: 500;
+    }
+
+    .table-count-input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 16px;
+
+      &:focus {
+        outline: none;
+        border-color: #667eea;
+      }
+    }
+  }
+
+  .warning {
+    color: #ff9800;
+    background-color: #fff3e0;
+    padding: 12px;
+    border-radius: 4px;
+    font-size: 14px;
+    line-height: 1.5;
   }
 }

@@ -64,4 +64,32 @@ export class TablesController {
       throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
     }
   }
+
+  @Get('preferences')
+  async getPreferences() {
+    return this.tablesService.getPreferences();
+  }
+
+  @Post('preferences')
+  async setPreferences(@Body() body: { tableCount?: number; dealAnimationTime?: number }, @Request() req) {
+    // Check if user is admin
+    if (req.user.userType !== 'admin') {
+      throw new HttpException('Unauthorized: Admin access required', HttpStatus.FORBIDDEN);
+    }
+
+    if (body.tableCount !== undefined) {
+      if (body.tableCount < 3 || body.tableCount > 36) {
+        throw new HttpException('Table count must be between 3 and 36', HttpStatus.BAD_REQUEST);
+      }
+    }
+
+    if (body.dealAnimationTime !== undefined) {
+      if (body.dealAnimationTime < 1000 || body.dealAnimationTime > 42000) {
+        throw new HttpException('Deal animation time must be between 1000 and 42000', HttpStatus.BAD_REQUEST);
+      }
+    }
+
+    await this.tablesService.setPreferences(body);
+    return { success: true };
+  }
 }

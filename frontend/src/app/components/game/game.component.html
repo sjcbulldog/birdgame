@@ -2,13 +2,18 @@
   <nav class="navbar">
     <div class="nav-content">
       <h1>Birds Application</h1>
+      <div class="game-state-display">
+        {{ gameStateText || 'Loading game...' }}
+      </div>
       <div class="nav-actions">
         @if (currentUser) {
           <span class="user-info">
-            Welcome, {{ currentUser.firstName || currentUser.email }}!
+            Welcome, {{ currentUser.username }}!
           </span>
+          <button class="btn-leave" (click)="onLeaveTable()">
+            Leave
+          </button>
         }
-        <button class="btn btn-logout" (click)="logout()">Logout</button>
       </div>
     </div>
   </nav>
@@ -17,7 +22,7 @@
     <div class="card-table">
       <canvas 
         #cardCanvas
-        [width]="1024" 
+        [width]="1280" 
         [height]="1024"
         class="card-canvas"
         (click)="onCanvasClick($event)">
@@ -35,6 +40,21 @@
         <div class="dialog-actions">
           <button class="btn btn-secondary" (click)="cancelLogout()">Cancel</button>
           <button class="btn btn-logout" (click)="confirmLogout()">Logout</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Leave Table Confirmation Dialog -->
+  @if (showLeaveTableDialog) {
+    <div class="dialog-overlay" (click)="cancelLeaveTable()">
+      <div class="dialog-content" (click)="$event.stopPropagation()">
+        <h2>Leave Table</h2>
+        <p>Are you sure you want to leave this table?</p>
+        <p class="warning">This will remove you from the game and return you to the home screen.</p>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" (click)="cancelLeaveTable()">Cancel</button>
+          <button class="btn btn-logout" (click)="confirmLeaveTable()">Leave Table</button>
         </div>
       </div>
     </div>

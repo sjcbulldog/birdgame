@@ -14,10 +14,20 @@
       <div class="nav-actions">
         @if (currentUser) {
           <span class="user-info">
-            Welcome, {{ currentUser.firstName || currentUser.email }}!
+            Welcome, {{ currentUser.username }}!
           </span>
         }
-        <button class="btn btn-logout" (click)="logout()">Logout</button>
+        <div style="position: relative;">
+          <button class="btn btn-menu" (click)="toggleMenu()">☰</button>
+          @if (showMenu) {
+            <div class="dropdown-menu">
+              @if (currentUser?.userType === 'admin') {
+                <button class="menu-item" (click)="openPreferences()">Preferences</button>
+              }
+              <button class="menu-item" (click)="logout()">Logout</button>
+            </div>
+          }
+        </div>
       </div>
     </div>
   </nav>
@@ -109,4 +119,44 @@
       }
     </div>
   </div>
+
+  <!-- Preferences Dialog -->
+  @if (showPreferencesDialog) {
+    <div class="dialog-overlay">
+      <div class="dialog-content preferences-dialog" (click)="$event.stopPropagation()">
+        <div class="dialog-header">
+          <h2>Site Preferences</h2>
+          <button class="close-btn" (click)="cancelPreferences()" aria-label="Close">×</button>
+        </div>
+        <div class="preference-item">
+          <label for="tableCount">Total Number of Tables (3-36):</label>
+          <input 
+            type="number" 
+            id="tableCount" 
+            [(ngModel)]="tableCount"
+            min="3" 
+            max="36" 
+            class="table-count-input"
+          />
+        </div>
+        <div class="preference-item">
+          <label for="dealAnimationTime">Deal Animation Time in milliseconds (1000-42000):</label>
+          <input 
+            type="number" 
+            id="dealAnimationTime" 
+            [(ngModel)]="dealAnimationTime"
+            min="1000" 
+            max="42000"
+            step="1000" 
+            class="table-count-input"
+          />
+        </div>
+        <p class="warning">Note: Changing table count will remove tables with active games or players if reducing the count.</p>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" (click)="cancelPreferences()">Cancel</button>
+          <button class="btn btn-primary" (click)="savePreferences()">Save</button>
+        </div>
+      </div>
+    </div>
+  }
 </div>
