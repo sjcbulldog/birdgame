@@ -50,10 +50,10 @@ def simulate_game():
         print(f"{current_player.name} asks {target.name} for {bird_type}...")
         
         # Ask for cards
-        success = game.ask_for_cards(current_player, target, bird_type)
+        cards_received = game.ask_for_cards(current_player, target, bird_type)
         
-        if success:
-            print(f"  ✓ Got cards!")
+        if cards_received > 0:
+            print(f"  ✓ Got {cards_received} card(s)!")
         else:
             print(f"  ✗ Go Fish!")
             card = game.draw_card(current_player)

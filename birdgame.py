@@ -156,22 +156,22 @@ class BirdGame:
         """Move to the next player's turn"""
         self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
     
-    def ask_for_cards(self, asker: Player, target: Player, bird_type: str) -> bool:
+    def ask_for_cards(self, asker: Player, target: Player, bird_type: str) -> int:
         """
         Player asks another player for cards of a specific bird type
-        Returns True if cards were given, False otherwise
+        Returns number of cards transferred (0 if none)
         """
         if not asker.has_bird(bird_type):
-            return False
+            return 0
         
         cards = target.remove_cards_of_type(bird_type)
         
         if cards:
             for card in cards:
                 asker.add_card(card)
-            return True
+            return len(cards)
         
-        return False
+        return 0
     
     def draw_card(self, player: Player) -> Optional[Card]:
         """Player draws a card from the deck"""
@@ -317,10 +317,9 @@ def play_game():
         # Ask for cards
         print(f"\n{current_player.name} asks {target_player.name} for {bird_type} cards...")
         
-        got_cards = game.ask_for_cards(current_player, target_player, bird_type)
+        cards_received = game.ask_for_cards(current_player, target_player, bird_type)
         
-        if got_cards:
-            cards_received = len(current_player.get_cards_of_type(bird_type)) - 1
+        if cards_received > 0:
             print(f"Success! {target_player.name} gave you {cards_received} {bird_type} card(s)!")
         else:
             print(f"Go Fish! {target_player.name} doesn't have any {bird_type} cards.")

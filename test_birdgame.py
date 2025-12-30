@@ -126,9 +126,12 @@ def test_game_initialization():
     assert game.players[0].name == "Alice"
     assert game.players[1].name == "Bob"
     
-    # Each player should have 7 cards for 2-player game
-    assert len(game.players[0].hand) + len(game.players[0].sets) * 4 == 7 or len(game.players[0].hand) < 7
-    assert len(game.players[1].hand) + len(game.players[1].sets) * 4 == 7 or len(game.players[1].hand) < 7
+    # Each player should be dealt cards (7 each for 2-player game)
+    # Some cards might have been immediately formed into sets
+    total_alice_cards = len(game.players[0].hand) + len(game.players[0].sets) * 4
+    total_bob_cards = len(game.players[1].hand) + len(game.players[1].sets) * 4
+    assert total_alice_cards == 7
+    assert total_bob_cards == 7
     
     # Deck should have fewer cards after dealing
     assert game.deck.cards_remaining() < 40
@@ -155,9 +158,9 @@ def test_game_ask_for_cards():
     initial_bob_cards = len(player2.hand)
     
     # Alice asks Bob for Robin cards
-    success = game.ask_for_cards(player1, player2, "Robin")
+    cards_transferred = game.ask_for_cards(player1, player2, "Robin")
     
-    assert success
+    assert cards_transferred == 2  # Bob had 2 Robin cards
     assert len(player1.hand) == initial_alice_cards + 2  # Got 2 cards from Bob
     assert len(player2.hand) == initial_bob_cards - 2  # Lost 2 cards
     print("✓ Ask for cards works")
