@@ -1,0 +1,42 @@
+<div class="game-container">
+  <nav class="navbar">
+    <div class="nav-content">
+      <h1>Birds Application</h1>
+      <div class="nav-actions">
+        @if (currentUser) {
+          <span class="user-info">
+            Welcome, {{ currentUser.firstName || currentUser.email }}!
+          </span>
+        }
+        <button class="btn btn-logout" (click)="logout()">Logout</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="content">
+    <div class="card-table">
+      <canvas 
+        #cardCanvas
+        [width]="1024" 
+        [height]="1024"
+        class="card-canvas"
+        (click)="onCanvasClick($event)">
+      </canvas>
+    </div>
+  </div>
+
+  <!-- Logout Confirmation Dialog -->
+  @if (showLogoutDialog) {
+    <div class="dialog-overlay" (click)="cancelLogout()">
+      <div class="dialog-content" (click)="$event.stopPropagation()">
+        <h2>Confirm Logout</h2>
+        <p>Are you sure you want to logout?</p>
+        <p class="warning">This will remove you from the current table and end your game session.</p>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" (click)="cancelLogout()">Cancel</button>
+          <button class="btn btn-logout" (click)="confirmLogout()">Logout</button>
+        </div>
+      </div>
+    </div>
+  }
+</div>

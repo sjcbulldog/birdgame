@@ -1,0 +1,23 @@
+﻿export interface Player {
+  id: string;
+  email: string;
+  username: string;
+  firstName?: string;
+  lastName?: string;
+}
+
+export interface TablePositions {
+  north?: Player;
+  south?: Player;
+  east?: Player;
+  west?: Player;
+}
+
+export interface Table {
+  id: string;
+  tableNumber: number;
+  positions: TablePositions;
+  watcherCount: number;
+}
+
+export type Position = 'north' | 'south' | 'east' | 'west';

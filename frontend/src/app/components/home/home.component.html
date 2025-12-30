@@ -1,0 +1,112 @@
+<div class="home-container">
+  @if (errorMessage()) {
+    <div class="error-popup">
+      <div class="error-content">
+        <p>{{ errorMessage() }}</p>
+        <button (click)="errorMessage.set(null)">Close</button>
+      </div>
+    </div>
+  }
+
+  <nav class="navbar">
+    <div class="nav-content">
+      <h1>Birds Application</h1>
+      <div class="nav-actions">
+        @if (currentUser) {
+          <span class="user-info">
+            Welcome, {{ currentUser.firstName || currentUser.email }}!
+          </span>
+        }
+        <button class="btn btn-logout" (click)="logout()">Logout</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="content">
+    <div class="cards-grid">
+      @for (table of tables(); track table.id) {
+        <div class="card">
+          <div class="card-image">
+            <!-- Start Button -->
+            @if (hasPlayers(table) && isUserAtTable(table)) {
+              <button class="start-button" (click)="startGame(table.id)" title="Start game">
+                Start
+              </button>
+            }
+            
+            <!-- North Position -->
+            <div class="position position-north" 
+                 [class.empty]="!table.positions.north"
+                 [class.occupied]="!!table.positions.north"
+                 [title]="table.positions.north?.username || ''"
+                 (click)="onPositionClick(table.id, 'north', !!table.positions.north)">
+              @if (table.positions.north) {
+                <img src="/api/images/user.png" alt="North player" />
+              } @else {
+                <img src="/api/images/frame.png" alt="Empty seat" />
+              }
+            </div>
+
+            <!-- South Position -->
+            <div class="position position-south" 
+                 [class.empty]="!table.positions.south"
+                 [class.occupied]="!!table.positions.south"
+                 [title]="table.positions.south?.username || ''"
+                 (click)="onPositionClick(table.id, 'south', !!table.positions.south)">
+              @if (table.positions.south) {
+                <img src="/api/images/user.png" alt="South player" />
+              } @else {
+                <img src="/api/images/frame.png" alt="Empty seat" />
+              }
+            </div>
+
+            <!-- East Position -->
+            <div class="position position-east" 
+                 [class.empty]="!table.positions.east"
+                 [class.occupied]="!!table.positions.east"
+                 [title]="table.positions.east?.username || ''"
+                 (click)="onPositionClick(table.id, 'east', !!table.positions.east)">
+              @if (table.positions.east) {
+                <img src="/api/images/user.png" alt="East player" />
+              } @else {
+                <img src="/api/images/frame.png" alt="Empty seat" />
+              }
+            </div>
+
+            <!-- West Position -->
+            <div class="position position-west" 
+                 [class.empty]="!table.positions.west"
+                 [class.occupied]="!!table.positions.west"
+                 [title]="table.positions.west?.username || ''"
+                 (click)="onPositionClick(table.id, 'west', !!table.positions.west)">
+              @if (table.positions.west) {
+                <img src="/api/images/user.png" alt="West player" />
+              } @else {
+                <img src="/api/images/frame.png" alt="Empty seat" />
+              }
+            </div>
+
+            <!-- Table Image -->
+            <img src="/api/images/desk.png" [alt]="'Table ' + table.tableNumber" class="table-img" />
+
+            <!-- Watcher Badge -->
+            @if (table.watcherCount > 0) {
+              <div class="watcher-badge" (click)="onWatchTable(table.id)">
+                <img src="/api/images/user.png" alt="Watchers" class="watcher-icon" />
+                <span class="watcher-count">{{ table.watcherCount }}</span>
+              </div>
+            } @else {
+              <div class="watcher-badge clickable" (click)="onWatchTable(table.id)" title="Watch this table">
+                <img src="/api/images/user.png" alt="Watch" class="watcher-icon" />
+                <span class="watcher-count">+</span>
+              </div>
+            }
+          </div>
+          <div class="card-content">
+            <h3>Table {{ table.tableNumber }}</h3>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+</div>

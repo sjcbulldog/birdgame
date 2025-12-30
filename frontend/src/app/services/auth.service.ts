@@ -1,0 +1,87 @@
+import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { BehaviorSubject, Observable, tap, catchError, throwError } from 'rxjs';
+import { 
+  User, 
+  RegisterRequest, 
+  LoginRequest, 
+  AuthResponse, 
+  RegisterResponse,
+  VerifyEmailResponse 
+} from '../models/auth.model';
+import { SocketService } from './socket.service';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class AuthService {
+  private apiUrl = 'http://localhost:3000/auth';
+  private currentUserSubject = new BehaviorSubject<User | null>(null);
+  public currentUser$ = this.currentUserSubject.asObservable();
+  private socketService = inject(SocketService);
+
+  constructor(private http: HttpClient) {
+    // Check if user is already logged in
+    const token = this.getToken();
+    const user = this.getStoredUser();
+    if (token && user) {
+      this.currentUserSubject.next(user);
+      this.socketService.connect(token);
+    }
+  }
+
+  register(data: RegisterRequest): Observable<RegisterResponse> {
+    return this.http.post<RegisterResponse>(`${this.apiUrl}/register`, data);
+  }
+
+  login(data: LoginRequest): Observable<AuthResponse> {
+    return this.http.post<AuthResponse>(`${this.apiUrl}/login`, data).pipe(
+      tap(response => {
+        this.setToken(response.accessToken);
+        this.setUser(response.user);
+        this.currentUserSubject.next(response.user);
+        this.socketService.connect(response.accessToken);
+      }),
+      catchError(error => {
+        console.error('AuthService login error:', error);
+        return throwError(() => error);
+      })
+    );
+  }
+
+  verifyEmail(token: string): Observable<VerifyEmailResponse> {
+    return this.http.get<VerifyEmailResponse>(`${this.apiUrl}/verify-email?token=${token}`);
+  }
+
+  resendVerification(usernameOrEmail: string): Observable<{ message: string }> {
+    return this.http.post<{ message: string }>(`${this.apiUrl}/resend-verification`, { usernameOrEmail });
+  }
+
+  logout(): void {
+    this.socketService.disconnect();
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('user');
+    this.currentUserSubject.next(null);
+  }
+
+  getToken(): string | null {
+    return localStorage.getItem('accessToken');
+  }
+
+  isAuthenticated(): boolean {
+    return !!this.getToken();
+  }
+
+  private setToken(token: string): void {
+    localStorage.setItem('accessToken', token);
+  }
+
+  private setUser(user: User): void {
+    localStorage.setItem('user', JSON.stringify(user));
+  }
+
+  private getStoredUser(): User | null {
+    const userStr = localStorage.getItem('user');
+    return userStr ? JSON.parse(userStr) : null;
+  }
+}

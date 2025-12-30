@@ -1,0 +1,149 @@
+<div class="register-container">
+  <div class="register-card">
+    <h2>Create Account</h2>
+    <p class="subtitle">Join our community</p>
+
+    @if (successMessage) {
+      <div class="alert alert-success">
+        {{ successMessage }}
+      </div>
+    }
+
+    @if (errorMessage) {
+      <div class="alert alert-error">
+        {{ errorMessage }}
+      </div>
+    }
+
+    <form [formGroup]="registerForm" (ngSubmit)="onSubmit()">
+      <div class="form-group">
+        <label for="username">Username *</label>
+        <input 
+          type="text" 
+          id="username" 
+          formControlName="username"
+          class="form-control"
+          [class.invalid]="username?.invalid && username?.touched"
+        />
+        @if (username?.invalid && username?.touched) {
+          <div class="error-text">
+            @if (username?.errors?.['required']) {
+              <span>Username is required</span>
+            }
+            @if (username?.errors?.['minlength']) {
+              <span>Username must be at least 3 characters</span>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="form-group">
+        <label for="email">Email Address *</label>
+        <input 
+          type="email" 
+          id="email" 
+          formControlName="email"
+          class="form-control"
+          [class.invalid]="email?.invalid && email?.touched"
+        />
+        @if (email?.invalid && email?.touched) {
+          <div class="error-text">
+            @if (email?.errors?.['required']) {
+              <span>Email is required</span>
+            }
+            @if (email?.errors?.['email']) {
+              <span>Please enter a valid email</span>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="firstName">First Name</label>
+          <input 
+            type="text" 
+            id="firstName" 
+            formControlName="firstName"
+            class="form-control"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="lastName">Last Name</label>
+          <input 
+            type="text" 
+            id="lastName" 
+            formControlName="lastName"
+            class="form-control"
+          />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="password">Password *</label>
+        <input 
+          type="password" 
+          id="password" 
+          formControlName="password"
+          class="form-control"
+          [class.invalid]="password?.invalid && password?.touched"
+        />
+        
+        <div class="password-requirements">
+          <p class="requirements-title">Password must contain:</p>
+          <ul class="requirements-list">
+            <li [class.met]="hasMinLength()" [class.unmet]="!hasMinLength()">
+              <span class="icon">{{ hasMinLength() ? '✓' : '○' }}</span>
+              At least 12 characters
+            </li>
+            <li [class.met]="hasLowerCase()" [class.unmet]="!hasLowerCase()">
+              <span class="icon">{{ hasLowerCase() ? '✓' : '○' }}</span>
+              One lowercase letter (a-z)
+            </li>
+            <li [class.met]="hasUpperCase()" [class.unmet]="!hasUpperCase()">
+              <span class="icon">{{ hasUpperCase() ? '✓' : '○' }}</span>
+              One uppercase letter (A-Z)
+            </li>
+            <li [class.met]="hasNumber()" [class.unmet]="!hasNumber()">
+              <span class="icon">{{ hasNumber() ? '✓' : '○' }}</span>
+              One number (0-9)
+            </li>
+            <li [class.met]="hasSymbol()" [class.unmet]="!hasSymbol()">
+              <span class="icon">{{ hasSymbol() ? '✓' : '○' }}</span>
+              One symbol (!@#$%^&*)
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="confirmPassword">Confirm Password *</label>
+        <input 
+          type="password" 
+          id="confirmPassword" 
+          formControlName="confirmPassword"
+          class="form-control"
+          [class.invalid]="confirmPassword?.invalid && confirmPassword?.touched || registerForm.errors?.['mismatch'] && confirmPassword?.touched"
+        />
+        @if (registerForm.errors?.['mismatch'] && confirmPassword?.touched) {
+          <div class="error-text">
+            <span>Passwords do not match</span>
+          </div>
+        }
+      </div>
+
+      <button 
+        type="submit" 
+        class="btn btn-primary"
+        [disabled]="registerForm.invalid || isLoading"
+      >
+        {{ isLoading ? 'Creating Account...' : 'Create Account' }}
+      </button>
+    </form>
+
+    <div class="footer-links">
+      <p>Already have an account? <a routerLink="/login">Sign in</a></p>
+    </div>
+  </div>
+</div>
