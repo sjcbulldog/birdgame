@@ -6,6 +6,9 @@ Demo script to show the game in action with automated players
 from birdgame import BirdGame
 import random
 
+# Configuration
+MAX_DEMO_TURNS = 20  # Limit turns for demo to keep output manageable
+
 
 def simulate_game():
     """Simulate a quick game with automated decisions"""
@@ -18,9 +21,8 @@ def simulate_game():
     game = BirdGame(["Alice", "Bob"])
     
     turn_count = 0
-    max_turns = 20  # Limit turns for demo
     
-    while not game.check_game_over() and turn_count < max_turns:
+    while not game.check_game_over() and turn_count < MAX_DEMO_TURNS:
         turn_count += 1
         current_player = game.get_current_player()
         

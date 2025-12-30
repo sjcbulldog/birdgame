@@ -129,6 +129,10 @@ class Player:
 class BirdGame:
     """Main game class"""
     
+    # Game configuration constants
+    CARDS_PER_PLAYER_2 = 7  # Cards dealt in 2-player game
+    CARDS_PER_PLAYER_MULTI = 5  # Cards dealt in 3-4 player games
+    
     def __init__(self, player_names: List[str]):
         self.deck = Deck()
         self.deck.shuffle()
@@ -137,7 +141,7 @@ class BirdGame:
         self.game_over = False
         
         # Deal initial hands
-        cards_per_player = 7 if len(self.players) == 2 else 5
+        cards_per_player = self.CARDS_PER_PLAYER_2 if len(self.players) == 2 else self.CARDS_PER_PLAYER_MULTI
         for _ in range(cards_per_player):
             for player in self.players:
                 card = self.deck.draw()
