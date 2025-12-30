@@ -93,11 +93,11 @@ export class AIPlayer {
     
     // Simple strategy for now
     if (currentBid === null) {
-      // First bid - can check or bid
-      if (handStrength >= 60) {
+      // First bid - can pass or bid
+      if (handStrength >= 40) {
         return 60;
       }
-      return 'check';
+      return 'pass';
     }
 
     // Someone has bid

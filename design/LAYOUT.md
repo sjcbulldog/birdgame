@@ -1,5 +1,6 @@
 There are two different frames of reference for players.
 
 In the backend, a current user may occupy any one of four positions: North, South, East, or West.
-In the frontend, the current player always views the table from the South end of the physical table.
-In the frontend, this is just for the view, the actual table seat is dictated by the backend.
+In the frontend, the four spots are called top, bottom, left, and right.
+The current users is always displayed at the bottom, but that may be the north, south, east, or west position.
+

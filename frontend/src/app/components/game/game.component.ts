@@ -1,5 +1,7 @@
 import { Component, OnInit, AfterViewInit, OnDestroy, inject, ElementRef, ViewChild, ChangeDetectorRef } from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../services/auth.service';
 import { SocketService } from '../../services/socket.service';
 import { TableService } from '../../services/table.service';
@@ -53,7 +55,7 @@ interface ServerGameState {
 
 @Component({
   selector: 'app-game',
-  imports: [],
+  imports: [CommonModule, FormsModule],
   templateUrl: './game.component.html',
   styleUrls: ['./game.component.scss']
 })
@@ -72,7 +74,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   currentUser: User | null = null;
   game?: ServerGameState;
   gameId?: string;
-  myPosition?: string; // north, east, south, west
+  myPosition?: string; // north, east, south, west - the user's backend position
   playerReadyState: Record<string, boolean> = {};
   isWaitingForPlayers = false;
   private previousGameState?: string;
@@ -83,6 +85,14 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   showLogoutDialog = false;
   showLeaveTableDialog = false;
   gameStateText = '';
+  
+  // Bidding UI state
+  selectedBidAmount: number = 60;
+  isSubmittingBid = false;
+
+  // Position mapping: backend position -> display position
+  // Display positions: bottom (current user), top, left, right
+  private positionMap: Record<string, 'bottom' | 'top' | 'left' | 'right'> = {};
 
   private updateGameStateText(): void {
     if (!this.game) {
@@ -191,14 +201,51 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     
     this.loadCardImage();
 
-    // Get game ID from route and join game
+    // Get game ID from route
     this.route.params.subscribe(params => {
       this.gameId = params['gameId'];
       if (this.gameId) {
-        // For now, assume south position
-        // TODO: Get actual player position from game/table data
-        this.myPosition = 'south';
-        this.socketService.joinGame(this.gameId, this.myPosition);
+        console.log('Game ID set:', this.gameId);
+        
+        // Fetch initial game state via HTTP
+        this.tableService.getGame(this.gameId).subscribe({
+          next: (game: ServerGameState) => {
+            console.log('Initial game state loaded:', game);
+            
+            // Determine user's position from table
+            if (this.currentUser && game.table) {
+              const userId = this.currentUser.id;
+              if (game.table.northPlayer?.id === userId) {
+                this.myPosition = 'north';
+              } else if (game.table.southPlayer?.id === userId) {
+                this.myPosition = 'south';
+              } else if (game.table.eastPlayer?.id === userId) {
+                this.myPosition = 'east';
+              } else if (game.table.westPlayer?.id === userId) {
+                this.myPosition = 'west';
+              }
+
+              // Set up position mapping
+              if (this.myPosition) {
+                this.updatePositionMapping();
+                
+                // Join the game via socket
+                this.socketService.joinGame(this.gameId!, this.myPosition);
+              }
+            }
+            
+            // Set initial game state
+            this.game = game;
+            this.playerReadyState = game.playerReady || {};
+            this.updateGameStateText();
+            if (this.ctx) {
+              this.renderTable();
+            }
+          },
+          error: (error) => {
+            console.error('Error loading game:', error);
+          }
+        });
       }
     });
   }
@@ -309,6 +356,49 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     return order[(currentIndex + 1) % 4];
   }
 
+  /**
+   * Updates the position mapping based on current user's backend position.
+   * Current user is always displayed at 'bottom'.
+   * Other positions are mapped clockwise: left, top, right.
+   */
+  private updatePositionMapping(): void {
+    if (!this.myPosition) return;
+
+    // Map backend positions to display positions
+    // Current user is always at bottom
+    this.positionMap[this.myPosition] = 'bottom';
+
+    // Map other positions clockwise from current user
+    const positions: Array<'north' | 'south' | 'east' | 'west'> = ['north', 'east', 'south', 'west'];
+    const currentIndex = positions.indexOf(this.myPosition as any);
+    
+    // Next position (clockwise) goes to left
+    this.positionMap[positions[(currentIndex + 1) % 4]] = 'left';
+    
+    // Opposite position goes to top
+    this.positionMap[positions[(currentIndex + 2) % 4]] = 'top';
+    
+    // Previous position (counter-clockwise) goes to right
+    this.positionMap[positions[(currentIndex + 3) % 4]] = 'right';
+  }
+
+  /**
+   * Get the display position for a backend position.
+   */
+  private getDisplayPosition(backendPosition: string): 'bottom' | 'top' | 'left' | 'right' {
+    return this.positionMap[backendPosition] || 'bottom';
+  }
+
+  /**
+   * Get the backend position for a display position.
+   */
+  private getBackendPosition(displayPosition: 'bottom' | 'top' | 'left' | 'right'): string {
+    for (const [backend, display] of Object.entries(this.positionMap)) {
+      if (display === displayPosition) return backend;
+    }
+    return 'south'; // fallback
+  }
+
   private startDealingAnimation(): void {
     this.isDealingAnimation = true;
     this.dealAnimationProgress = 0;
@@ -363,22 +453,52 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     }
 
     const margin = 20;
-    const cardOverlapVertical = 30;
-    const cardOverlapHorizontal = this.CARD_WIDTH_DISPLAY * 0.875; // 7/8 width
-    const cardOverlapTight = this.CARD_WIDTH_DISPLAY * 0.3; // Tight overlap for north
-    const cardSpacingSouth = this.CARD_WIDTH_DISPLAY + 2; // 2px gap between cards for south
+    const cardOverlapVertical = 30; // for left/right positions
+    const cardOverlapHorizontal = this.CARD_WIDTH_DISPLAY * 0.875; // 7/8 width for opponents
+    const cardOverlapTight = this.CARD_WIDTH_DISPLAY * 0.3; // Tight overlap for top position
+    const cardSpacingBottom = this.CARD_WIDTH_DISPLAY + 2; // 2px gap between cards for bottom (current user)
 
-    // Sort the south (human) player's cards before rendering
-    const sortedSouthCards = this.sortCards(this.game.gameState.hands.south);
+    // Special handling for selecting state - current user has 15 cards
+    const isSelectingState = this.game.state === 'selecting';
+    const isCurrentUserHighBidder = isSelectingState && this.game.highBidder === this.myPosition;
 
-    // Render each player's hand
-    this.renderPlayerHand('south', sortedSouthCards, margin, cardSpacingSouth);
-    this.renderPlayerHand('north', this.game.gameState.hands.north, margin, cardOverlapTight);
-    this.renderPlayerHand('east', this.game.gameState.hands.east, margin, cardOverlapVertical);
-    this.renderPlayerHand('west', this.game.gameState.hands.west, margin, cardOverlapVertical);
+    // Render each player's hand with appropriate overlap based on display position
+    const positions: Array<'north' | 'south' | 'east' | 'west'> = ['north', 'south', 'east', 'west'];
+    
+    for (const backendPos of positions) {
+      const displayPos = this.getDisplayPosition(backendPos);
+      const isCurrentUser = backendPos === this.myPosition;
+      let cards = this.game.gameState.hands[backendPos];
+      let overlap: number;
+      
+      // Skip rendering current user's hand if in selecting state - will render specially
+      if (isCurrentUserHighBidder && isCurrentUser) {
+        continue;
+      }
+      
+      // Determine overlap based on display position
+      if (displayPos === 'bottom') {
+        // Current user at bottom: sort cards and use wider spacing
+        cards = this.sortCards(cards);
+        overlap = cardSpacingBottom;
+      } else if (displayPos === 'top') {
+        // Top position: tight overlap
+        overlap = cardOverlapTight;
+      } else {
+        // Left/right positions: vertical overlap
+        overlap = cardOverlapVertical;
+      }
+      
+      this.renderPlayerHand(backendPos, cards, margin, overlap);
+    }
 
-    // Render player names
-    this.renderPlayerNames();
+    // Render selecting state for current user
+    if (isCurrentUserHighBidder) {
+      this.renderSelectingState(margin, cardSpacingBottom);
+    }
+
+    // Render player icons with names for all players
+    this.renderPlayerIcons();
 
     // Render kitty if in initial state
     if (this.game.state === 'bidding' && (this.game.gameState.kitty.faceDown.length > 0 || this.game.gameState.kitty.faceUp)) {
@@ -402,23 +522,35 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     // Render scores
     this.renderScores();
 
-    // Draw player icons at four positions
+    // Draw player icons at four display positions based on position mapping
     const iconSize = 80;
-    const positions = [
-      { name: 'north', x: this.TABLE_WIDTH / 2 - iconSize / 2, y: 50 },
-      { name: 'south', x: this.TABLE_WIDTH / 2 - iconSize / 2, y: this.TABLE_HEIGHT - 50 - iconSize },
-      { name: 'east', x: this.TABLE_WIDTH - 50 - iconSize, y: this.TABLE_HEIGHT / 2 - iconSize / 2 },
-      { name: 'west', x: 50, y: this.TABLE_HEIGHT / 2 - iconSize / 2 },
-    ];
+    const backendPositions: Array<'north' | 'south' | 'east' | 'west'> = ['north', 'south', 'east', 'west'];
 
-    positions.forEach(pos => {
-      const playerType = this.game!.playerTypes[pos.name];
-      const player = this.game!.table[`${pos.name}Player` as keyof typeof this.game.table];
-      const isReady = this.playerReadyState[pos.name];
+    backendPositions.forEach(backendPos => {
+      const displayPos = this.getDisplayPosition(backendPos);
+      const playerType = this.game!.playerTypes[backendPos];
+      const player = this.game!.table[`${backendPos}Player` as keyof typeof this.game.table];
+      const isReady = this.playerReadyState[backendPos];
+
+      // Calculate position based on display position
+      let x: number, y: number;
+      if (displayPos === 'bottom') {
+        x = this.TABLE_WIDTH / 2 - iconSize / 2;
+        y = this.TABLE_HEIGHT - 50 - iconSize;
+      } else if (displayPos === 'top') {
+        x = this.TABLE_WIDTH / 2 - iconSize / 2;
+        y = 50;
+      } else if (displayPos === 'right') {
+        x = this.TABLE_WIDTH - 50 - iconSize;
+        y = this.TABLE_HEIGHT / 2 - iconSize / 2;
+      } else { // left
+        x = 50;
+        y = this.TABLE_HEIGHT / 2 - iconSize / 2;
+      }
 
       // Draw icon background circle
       this.ctx!.beginPath();
-      this.ctx!.arc(pos.x + iconSize / 2, pos.y + iconSize / 2, iconSize / 2, 0, 2 * Math.PI);
+      this.ctx!.arc(x + iconSize / 2, y + iconSize / 2, iconSize / 2, 0, 2 * Math.PI);
       this.ctx!.fillStyle = isReady ? '#4CAF50' : '#757575';
       this.ctx!.fill();
       this.ctx!.strokeStyle = '#ffffff';
@@ -429,10 +561,10 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       const iconImage = new Image();
       iconImage.src = playerType === 'computer' ? '/images/computer.png' : '/images/user.png';
       if (iconImage.complete) {
-        this.ctx!.drawImage(iconImage, pos.x + 10, pos.y + 10, iconSize - 20, iconSize - 20);
+        this.ctx!.drawImage(iconImage, x + 10, y + 10, iconSize - 20, iconSize - 20);
       } else {
         iconImage.onload = () => {
-          this.ctx!.drawImage(iconImage, pos.x + 10, pos.y + 10, iconSize - 20, iconSize - 20);
+          this.ctx!.drawImage(iconImage, x + 10, y + 10, iconSize - 20, iconSize - 20);
         };
       }
 
@@ -441,14 +573,14 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
         this.ctx!.fillStyle = '#ffffff';
         this.ctx!.font = '14px Arial';
         this.ctx!.textAlign = 'center';
-        this.ctx!.fillText(player.username || player.email, pos.x + iconSize / 2, pos.y + iconSize + 20);
+        this.ctx!.fillText(player.username || player.email, x + iconSize / 2, y + iconSize + 20);
       } else if (playerType === 'computer' && this.game!.playerNames) {
-        const computerName = this.game!.playerNames[pos.name];
+        const computerName = this.game!.playerNames[backendPos];
         if (computerName) {
           this.ctx!.fillStyle = '#ffffff';
           this.ctx!.font = '14px Arial';
           this.ctx!.textAlign = 'center';
-          this.ctx!.fillText(computerName, pos.x + iconSize / 2, pos.y + iconSize + 20);
+          this.ctx!.fillText(computerName, x + iconSize / 2, y + iconSize + 20);
         }
       }
     });
@@ -521,24 +653,20 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     const totalCards = 42;
     const currentCardIndex = Math.floor(this.dealAnimationProgress * totalCards);
 
-    // Dealer position
+    // Dealer display position (mapped from backend position)
     const dealer = this.game.dealer;
-    const dealerPositions = {
-      south: { x: this.TABLE_WIDTH / 2 - this.CARD_WIDTH_DISPLAY / 2, y: this.TABLE_HEIGHT - 20 - this.CARD_HEIGHT_DISPLAY },
-      north: { x: this.TABLE_WIDTH / 2 - this.CARD_WIDTH_DISPLAY / 2, y: 20 },
-      east: { x: this.TABLE_WIDTH - 20 - this.CARD_WIDTH_DISPLAY, y: this.TABLE_HEIGHT / 2 - this.CARD_HEIGHT_DISPLAY / 2 },
-      west: { x: 20, y: this.TABLE_HEIGHT / 2 - this.CARD_HEIGHT_DISPLAY / 2 },
-    };
-
-    const startPos = dealerPositions[dealer as keyof typeof dealerPositions] || dealerPositions.south;
-
-    // Base positions for each player (top-left of their hand)
-    const basePositions = {
-      south: { x: this.TABLE_WIDTH / 2, y: this.TABLE_HEIGHT - 20 - this.CARD_HEIGHT_DISPLAY },
-      north: { x: this.TABLE_WIDTH / 2, y: 20 },
-      east: { x: this.TABLE_WIDTH - 20 - this.CARD_WIDTH_DISPLAY, y: this.TABLE_HEIGHT / 2 },
-      west: { x: 20, y: this.TABLE_HEIGHT / 2 },
-    };
+    const dealerDisplayPos = this.getDisplayPosition(dealer);
+    
+    let startPos: { x: number; y: number };
+    if (dealerDisplayPos === 'bottom') {
+      startPos = { x: this.TABLE_WIDTH / 2 - this.CARD_WIDTH_DISPLAY / 2, y: this.TABLE_HEIGHT - 20 - this.CARD_HEIGHT_DISPLAY };
+    } else if (dealerDisplayPos === 'top') {
+      startPos = { x: this.TABLE_WIDTH / 2 - this.CARD_WIDTH_DISPLAY / 2, y: 20 };
+    } else if (dealerDisplayPos === 'right') {
+      startPos = { x: this.TABLE_WIDTH - 20 - this.CARD_WIDTH_DISPLAY, y: this.TABLE_HEIGHT / 2 - this.CARD_HEIGHT_DISPLAY / 2 };
+    } else { // left
+      startPos = { x: 20, y: this.TABLE_HEIGHT / 2 - this.CARD_HEIGHT_DISPLAY / 2 };
+    }
 
     // Kitty center position
     const kittyCenter = { 
@@ -552,30 +680,40 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     const margin = 20;
     
     // Use same overlap values as in bidding state
-    const cardOverlapHorizontalSouth = this.CARD_WIDTH_DISPLAY; // No overlap for south during dealing
-    const cardOverlapTightNorth = this.CARD_WIDTH_DISPLAY * 0.3;
-    const cardOverlapVertical = 30;
+    const cardOverlapHorizontalBottom = this.CARD_WIDTH_DISPLAY; // Bottom player (current user)
+    const cardOverlapTightTop = this.CARD_WIDTH_DISPLAY * 0.3; // Top player (opposite)
+    const cardOverlapVertical = 30; // Left and right players
     const finalCardCount = 9; // Each player gets 9 cards
+
+    // Helper function to get display-position-based coordinates for a backend position
+    const getPositionCoords = (backendPos: string, cardIndex: number, isStartPos: boolean) => {
+      const displayPos = this.getDisplayPosition(backendPos);
+      
+      if (displayPos === 'bottom') {
+        const finalWidth = this.CARD_WIDTH_DISPLAY + (finalCardCount - 1) * cardOverlapHorizontalBottom;
+        const startX = (this.TABLE_WIDTH - finalWidth) / 2;
+        const y = this.TABLE_HEIGHT - this.CARD_HEIGHT_DISPLAY - margin;
+        return { x: isStartPos ? startX : startX + cardIndex * cardOverlapHorizontalBottom, y };
+      } else if (displayPos === 'top') {
+        const finalWidth = this.CARD_WIDTH_DISPLAY + (finalCardCount - 1) * cardOverlapTightTop;
+        const startX = (this.TABLE_WIDTH - finalWidth) / 2;
+        const y = margin;
+        return { x: isStartPos ? startX : startX + cardIndex * cardOverlapTightTop, y };
+      } else if (displayPos === 'left') {
+        const x = margin;
+        const finalHeight = this.CARD_HEIGHT_DISPLAY + (finalCardCount - 1) * cardOverlapVertical;
+        const startY = (this.TABLE_HEIGHT - finalHeight) / 2;
+        return { x, y: isStartPos ? startY : startY + cardIndex * cardOverlapVertical };
+      } else { // right
+        const x = this.TABLE_WIDTH - this.CARD_WIDTH_DISPLAY - margin;
+        const finalHeight = this.CARD_HEIGHT_DISPLAY + (finalCardCount - 1) * cardOverlapVertical;
+        const startY = (this.TABLE_HEIGHT - finalHeight) / 2;
+        return { x, y: isStartPos ? startY : startY + cardIndex * cardOverlapVertical };
+      }
+    };
 
     // Track card counts for each destination
     const cardCounts = { south: 0, west: 0, north: 0, east: 0, kitty: 0 };
-    
-    // Calculate starting positions for each player based on final 9-card layout
-    const southFinalWidth = this.CARD_WIDTH_DISPLAY + (finalCardCount - 1) * cardOverlapHorizontalSouth;
-    const southStartX = (this.TABLE_WIDTH - southFinalWidth) / 2;
-    const southY = this.TABLE_HEIGHT - this.CARD_HEIGHT_DISPLAY - margin;
-    
-    const northFinalWidth = this.CARD_WIDTH_DISPLAY + (finalCardCount - 1) * cardOverlapTightNorth;
-    const northStartX = (this.TABLE_WIDTH - northFinalWidth) / 2;
-    const northY = margin;
-    
-    const westX = margin;
-    const westFinalHeight = this.CARD_HEIGHT_DISPLAY + (finalCardCount - 1) * cardOverlapVertical;
-    const westStartY = (this.TABLE_HEIGHT - westFinalHeight) / 2;
-    
-    const eastX = this.TABLE_WIDTH - this.CARD_WIDTH_DISPLAY - margin;
-    const eastFinalHeight = this.CARD_HEIGHT_DISPLAY + (finalCardCount - 1) * cardOverlapVertical;
-    const eastStartY = (this.TABLE_HEIGHT - eastFinalHeight) / 2;
     
     // Build list of cards dealt to each player so far
     const dealtCards: { south: Card[], west: Card[], north: Card[], east: Card[] } = {
@@ -665,29 +803,43 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
           isFaceUp = true;
         }
       } else {
-        const pos = destination as 'south' | 'west' | 'north' | 'east';
-        const cardIndex = cardCounts[pos];
+        const backendPos = destination as 'south' | 'west' | 'north' | 'east';
+        const cardIndex = cardCounts[backendPos];
+        const isCurrentUser = backendPos === this.myPosition;
+        const displayPos = this.getDisplayPosition(backendPos);
         
-        if (pos === 'south') {
-          // Find position in sorted array
-          const originalCard = this.game.gameState.hands.south[cardIndex];
-          const sortedIndex = sortedSouthCards.findIndex(c => c.id === originalCard?.id);
-          targetX = southStartX + (sortedIndex >= 0 ? sortedIndex : cardIndex) * cardOverlapHorizontalSouth;
-          targetY = southY;
-          cardToRender = originalCard || null;
-          isFaceUp = true;
-        } else if (pos === 'north') {
-          targetX = northStartX + cardIndex * cardOverlapTightNorth;
-          targetY = northY;
-        } else if (pos === 'west') {
-          targetX = westX;
-          targetY = westStartY + cardIndex * cardOverlapVertical;
-        } else { // east
-          targetX = eastX;
-          targetY = eastStartY + cardIndex * cardOverlapVertical;
+        // For current user (displayed at bottom), use progressive sorting
+        if (isCurrentUser && displayPos === 'bottom') {
+          const originalCard = this.game.gameState.hands[backendPos][cardIndex];
+          if (originalCard) {
+            // Sort only the cards dealt SO FAR (progressive sorting)
+            const sortedDealtCards = this.sortCards([...dealtCards[backendPos]]);
+            const sortedIndex = sortedDealtCards.findIndex(c => c.id === originalCard?.id);
+            const currentCardCount = dealtCards[backendPos].length;
+            
+            // Center the current group of cards
+            const currentGroupWidth = this.CARD_WIDTH_DISPLAY + (currentCardCount - 1) * cardOverlapHorizontalBottom;
+            const groupStartX = (this.TABLE_WIDTH - currentGroupWidth) / 2;
+            
+            targetX = groupStartX + (sortedIndex >= 0 ? sortedIndex : cardIndex) * cardOverlapHorizontalBottom;
+            targetY = this.TABLE_HEIGHT - this.CARD_HEIGHT_DISPLAY - margin;
+            
+            cardToRender = originalCard;
+            isFaceUp = true;
+          } else {
+            // Fallback if card not found
+            const coords = getPositionCoords(backendPos, cardIndex, false);
+            targetX = coords.x;
+            targetY = coords.y;
+          }
+        } else {
+          // For other players or positions, use normal positioning
+          const coords = getPositionCoords(backendPos, cardIndex, false);
+          targetX = coords.x;
+          targetY = coords.y;
         }
         
-        cardCounts[pos]++;
+        cardCounts[backendPos]++;
       }
 
       // Calculate animation progress for this card
@@ -718,8 +870,8 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       );
     }
 
-    // Render player names during dealing
-    this.renderPlayerNames();
+    // Render player icons during dealing
+    this.renderPlayerIcons();
 
     // Render scores during dealing
     this.renderScores();
@@ -774,6 +926,73 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     this.showLeaveTableDialog = false;
   }
 
+  // Bidding methods
+  canBid(): boolean {
+    return this.game?.state === 'bidding' && 
+           this.game?.currentBidder === this.myPosition;
+  }
+
+  canCheck(): boolean {
+    if (!this.canBid() || !this.game?.highBidder || !this.myPosition) return false;
+    const partner = this.getPartner(this.myPosition);
+    return this.game.highBidder === partner;
+  }
+
+  getMinBid(): number {
+    return this.game?.highBid ? this.game.highBid + 5 : 60;
+  }
+
+  getMaxBid(): number {
+    return 150;
+  }
+
+  getBidOptions(): number[] {
+    const min = this.getMinBid();
+    const max = this.getMaxBid();
+    const options: number[] = [];
+    for (let bid = min; bid <= max; bid += 5) {
+      options.push(bid);
+    }
+    return options;
+  }
+
+  placeBid(bid: number | 'pass' | 'check'): void {
+    if (!this.gameId || !this.myPosition || this.isSubmittingBid) return;
+    
+    this.isSubmittingBid = true;
+    this.socketService.placeBid(this.gameId, this.myPosition, bid);
+    
+    // Reset after a short delay to prevent double-clicking
+    setTimeout(() => {
+      this.isSubmittingBid = false;
+    }, 1000);
+  }
+
+  onBidAmountChange(): void {
+    // Ensure selected bid is within valid range
+    const min = this.getMinBid();
+    const max = this.getMaxBid();
+    
+    if (this.selectedBidAmount < min) {
+      this.selectedBidAmount = min;
+    } else if (this.selectedBidAmount > max) {
+      this.selectedBidAmount = max;
+    } else {
+      // Round to nearest multiple of 5
+      this.selectedBidAmount = Math.round(this.selectedBidAmount / 5) * 5;
+    }
+  }
+
+  private getPartner(position: string): string {
+    const partners: Record<string, string> = {
+      'north': 'south',
+      'south': 'north',
+      'east': 'west',
+      'west': 'east'
+    };
+    return partners[position];
+  }
+
   onCanvasClick(event: MouseEvent): void {
     if (!this.game || this.game.state !== 'new') return;
 
@@ -798,13 +1017,14 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  private renderPlayerHand(position: string, cards: Card[], margin: number, overlap: number): void {
+  private renderPlayerHand(backendPosition: string, cards: Card[], margin: number, overlap: number): void {
     if (!this.ctx || !this.cardImage || cards.length === 0) return;
 
-    const isMyHand = position === this.myPosition;
+    const displayPosition = this.getDisplayPosition(backendPosition);
+    const isMyHand = backendPosition === this.myPosition;
     const cardCount = cards.length;
 
-    if (position === 'south') {
+    if (displayPosition === 'bottom') {
       const bottomY = this.TABLE_HEIGHT - this.CARD_HEIGHT_DISPLAY - margin;
       const totalWidth = this.CARD_WIDTH_DISPLAY + (cardCount - 1) * overlap;
       const startX = (this.TABLE_WIDTH - totalWidth) / 2;
@@ -820,7 +1040,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
           this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY
         );
       }
-    } else if (position === 'north') {
+    } else if (displayPosition === 'top') {
       const topY = margin;
       const totalWidth = this.CARD_WIDTH_DISPLAY + (cardCount - 1) * overlap;
       const startX = (this.TABLE_WIDTH - totalWidth) / 2;
@@ -835,7 +1055,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
           this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY
         );
       }
-    } else if (position === 'west') {
+    } else if (displayPosition === 'left') {
       const leftX = margin;
       const totalHeight = this.CARD_HEIGHT_DISPLAY + (cardCount - 1) * overlap;
       const startY = (this.TABLE_HEIGHT - totalHeight) / 2;
@@ -850,7 +1070,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
           this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY
         );
       }
-    } else if (position === 'east') {
+    } else if (displayPosition === 'right') {
       const rightX = this.TABLE_WIDTH - this.CARD_WIDTH_DISPLAY - margin;
       const totalHeight = this.CARD_HEIGHT_DISPLAY + (cardCount - 1) * overlap;
       const startY = (this.TABLE_HEIGHT - totalHeight) / 2;
@@ -866,6 +1086,111 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
         );
       }
     }
+  }
+
+  private renderSelectingState(margin: number, cardSpacing: number): void {
+    if (!this.ctx || !this.cardImage || !this.game || !this.myPosition) return;
+
+    const backendPos = this.myPosition as 'north' | 'south' | 'east' | 'west';
+    const cards = this.sortCards(this.game.gameState.hands[backendPos]);
+    const totalCards = cards.length; // Should be 15 (9 original + 6 from kitty)
+    
+    // Split into two rows: 6 kitty cards on top row, 9 original cards on bottom row
+    const topRowCount = 6;
+    const bottomRowCount = totalCards - topRowCount;
+    
+    // Reverse the arrays so kitty cards (last 6) are on top
+    const topRowCards = cards.slice(-topRowCount); // Last 6 cards (from kitty)
+    const bottomRowCards = cards.slice(0, bottomRowCount); // First 9 cards (original hand)
+    
+    // Calculate positions
+    const iconSize = 50;
+    const iconMargin = 20;
+    const rowGap = 10; // Gap between the two rows of cards
+    
+    // Bottom row (original 9 cards) - positioned at bottom of screen
+    const bottomRowY = this.TABLE_HEIGHT - this.CARD_HEIGHT_DISPLAY - margin;
+    const bottomRowWidth = this.CARD_WIDTH_DISPLAY + (bottomRowCount - 1) * cardSpacing;
+    const bottomRowStartX = (this.TABLE_WIDTH - bottomRowWidth) / 2;
+    
+    // Top row (6 kitty cards) - positioned above bottom row
+    const topRowY = bottomRowY - this.CARD_HEIGHT_DISPLAY - rowGap;
+    const topRowWidth = this.CARD_WIDTH_DISPLAY + (topRowCount - 1) * cardSpacing;
+    const topRowStartX = (this.TABLE_WIDTH - topRowWidth) / 2;
+    
+    // Icon and username positioned above top row (centered above the 6 kitty cards)
+    const iconX = this.TABLE_WIDTH / 2 - iconSize / 2;
+    const iconY = topRowY - iconSize - iconMargin;
+    
+    // Draw top row (kitty cards)
+    for (let i = 0; i < topRowCount; i++) {
+      const card = topRowCards[i];
+      const sourceX = this.getCardSourceX(card);
+      this.ctx.drawImage(
+        this.cardImage,
+        sourceX, 0,
+        this.CARD_WIDTH_SOURCE, this.CARD_HEIGHT_SOURCE,
+        topRowStartX + i * cardSpacing, topRowY,
+        this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY
+      );
+    }
+    
+    // Draw bottom row (original hand)
+    for (let i = 0; i < bottomRowCount; i++) {
+      const card = bottomRowCards[i];
+      const sourceX = this.getCardSourceX(card);
+      this.ctx.drawImage(
+        this.cardImage,
+        sourceX, 0,
+        this.CARD_WIDTH_SOURCE, this.CARD_HEIGHT_SOURCE,
+        bottomRowStartX + i * cardSpacing, bottomRowY,
+        this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY
+      );
+    }
+    
+    // Draw icon for current user (the selecting player) above the kitty cards
+    const playerType = this.game.playerTypes[this.myPosition];
+    const isDealer = this.game.dealer === this.myPosition;
+    const iconColor = isDealer ? '#ffa500' : '#4CAF50';
+    
+    this.ctx.beginPath();
+    this.ctx.arc(iconX + iconSize / 2, iconY + iconSize / 2, iconSize / 2, 0, Math.PI * 2);
+    this.ctx.fillStyle = iconColor;
+    this.ctx.fill();
+    this.ctx.strokeStyle = '#ffffff';
+    this.ctx.lineWidth = 2;
+    this.ctx.stroke();
+    
+    // Draw icon (computer or user)
+    const iconImage = new Image();
+    iconImage.src = playerType === 'computer' ? '/images/computer.png' : '/images/user.png';
+    if (iconImage.complete) {
+      this.ctx.drawImage(iconImage, iconX + 8, iconY + 8, iconSize - 16, iconSize - 16);
+    } else {
+      iconImage.onload = () => {
+        if (this.ctx) {
+          this.ctx.drawImage(iconImage, iconX + 8, iconY + 8, iconSize - 16, iconSize - 16);
+        }
+      };
+    }
+    
+    // Draw username
+    const playerName = this.game.playerNames?.[this.myPosition] || this.myPosition;
+    this.ctx.font = isDealer ? 'bold 14px Arial' : '13px Arial';
+    this.ctx.fillStyle = isDealer ? '#ffa500' : '#ffffff';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'top';
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+    this.ctx.shadowBlur = 3;
+    this.ctx.shadowOffsetX = 1;
+    this.ctx.shadowOffsetY = 1;
+    this.ctx.fillText(playerName, iconX + iconSize / 2, iconY + iconSize + 5);
+    
+    // Reset shadow
+    this.ctx.shadowColor = 'transparent';
+    this.ctx.shadowBlur = 0;
+    this.ctx.shadowOffsetX = 0;
+    this.ctx.shadowOffsetY = 0;
   }
 
   private renderKitty(): void {
@@ -900,6 +1225,94 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
         kittyCenter.x + faceDownCount * 2, kittyCenter.y + faceDownCount * 2,
         this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY
       );
+    }
+  }
+
+  private renderPlayerIcons(): void {
+    if (!this.ctx || !this.game) return;
+
+    const margin = 20;
+    const iconSize = 50;
+    const positions: Array<'north' | 'south' | 'east' | 'west'> = ['north', 'south', 'east', 'west'];
+    
+    // Check if we're in selecting state and if current user is the high bidder
+    const isSelectingState = this.game.state === 'selecting';
+    const isCurrentUserHighBidder = isSelectingState && this.game.highBidder === this.myPosition;
+
+    for (const backendPos of positions) {
+      // Skip rendering the current user's icon in selecting state - it's rendered above kitty cards
+      if (isCurrentUserHighBidder && backendPos === this.myPosition) {
+        continue;
+      }
+      
+      const displayPos = this.getDisplayPosition(backendPos);
+      const playerType = this.game.playerTypes[backendPos];
+      const player = this.game.table[`${backendPos}Player` as keyof typeof this.game.table];
+      const playerName = this.game.playerNames?.[backendPos] || backendPos;
+      const isDealer = this.game.dealer === backendPos;
+
+      let iconX: number, iconY: number;
+
+      // Position icon based on display position
+      if (displayPos === 'bottom') {
+        // Bottom player: just above cards, centered
+        iconX = this.TABLE_WIDTH / 2 - iconSize / 2;
+        iconY = this.TABLE_HEIGHT - this.CARD_HEIGHT_DISPLAY - margin - iconSize - 35;
+      } else if (displayPos === 'top') {
+        // Top player: to the right of cards
+        const topCardsEndX = this.TABLE_WIDTH / 2 + (this.CARD_WIDTH_DISPLAY + (9 - 1) * (this.CARD_WIDTH_DISPLAY * 0.3)) / 2;
+        iconX = topCardsEndX + 20;
+        iconY = margin + 10;
+      } else if (displayPos === 'left') {
+        // Left player: above stack
+        iconX = margin + this.CARD_WIDTH_DISPLAY / 2 - iconSize / 2;
+        const leftCardsStartY = (this.TABLE_HEIGHT - (this.CARD_HEIGHT_DISPLAY + 30 * 9)) / 2;
+        iconY = leftCardsStartY - iconSize - 45;
+      } else { // right
+        // Right player: above stack
+        iconX = this.TABLE_WIDTH - margin - this.CARD_WIDTH_DISPLAY / 2 - iconSize / 2;
+        const rightCardsStartY = (this.TABLE_HEIGHT - (this.CARD_HEIGHT_DISPLAY + 30 * 9)) / 2;
+        iconY = rightCardsStartY - iconSize - 45;
+      }
+
+      // Draw icon background circle
+      this.ctx.beginPath();
+      this.ctx.arc(iconX + iconSize / 2, iconY + iconSize / 2, iconSize / 2, 0, 2 * Math.PI);
+      this.ctx.fillStyle = isDealer ? '#ffa500' : '#4CAF50';
+      this.ctx.fill();
+      this.ctx.strokeStyle = '#ffffff';
+      this.ctx.lineWidth = 2;
+      this.ctx.stroke();
+
+      // Draw icon (computer or user)
+      const iconImage = new Image();
+      iconImage.src = playerType === 'computer' ? '/images/computer.png' : '/images/user.png';
+      if (iconImage.complete) {
+        this.ctx.drawImage(iconImage, iconX + 8, iconY + 8, iconSize - 16, iconSize - 16);
+      } else {
+        iconImage.onload = () => {
+          if (this.ctx) {
+            this.ctx.drawImage(iconImage, iconX + 8, iconY + 8, iconSize - 16, iconSize - 16);
+          }
+        };
+      }
+
+      // Draw username below icon
+      this.ctx.fillStyle = isDealer ? '#ffa500' : '#ffffff';
+      this.ctx.font = isDealer ? 'bold 14px Arial' : '13px Arial';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'top';
+      this.ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+      this.ctx.shadowBlur = 3;
+      this.ctx.shadowOffsetX = 1;
+      this.ctx.shadowOffsetY = 1;
+      this.ctx.fillText(playerName, iconX + iconSize / 2, iconY + iconSize + 5);
+      
+      // Reset shadow
+      this.ctx.shadowColor = 'transparent';
+      this.ctx.shadowBlur = 0;
+      this.ctx.shadowOffsetX = 0;
+      this.ctx.shadowOffsetY = 0;
     }
   }
 
@@ -943,23 +1356,32 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       this.ctx!.shadowOffsetY = 0;
     };
 
-    // South player (bottom): center, just above cards
-    const southY = this.TABLE_HEIGHT - this.CARD_HEIGHT_DISPLAY - margin - 15;
-    renderName('south', this.TABLE_WIDTH / 2, southY);
-
-    // North player (top): center, just below the cards
-    const northY = margin + this.CARD_HEIGHT_DISPLAY + 15;
-    renderName('north', this.TABLE_WIDTH / 2, northY);
-
-    // West player (left): on top of the stack
-    const westX = margin + this.CARD_WIDTH_DISPLAY / 2;
-    const westCardsStartY = (this.TABLE_HEIGHT - (this.CARD_HEIGHT_DISPLAY + 30 * 9)) / 2;
-    renderName('west', westX, westCardsStartY - 10);
-
-    // East player (right): on top of the stack
-    const eastX = this.TABLE_WIDTH - margin - this.CARD_WIDTH_DISPLAY / 2;
-    const eastCardsStartY = (this.TABLE_HEIGHT - (this.CARD_HEIGHT_DISPLAY + 30 * 9)) / 2;
-    renderName('east', eastX, eastCardsStartY - 10);
+    // Render each backend position at its mapped display position
+    const positions: Array<'north' | 'south' | 'east' | 'west'> = ['north', 'south', 'east', 'west'];
+    
+    for (const backendPos of positions) {
+      const displayPos = this.getDisplayPosition(backendPos);
+      
+      if (displayPos === 'bottom') {
+        // Bottom player: center, just above cards
+        const bottomY = this.TABLE_HEIGHT - this.CARD_HEIGHT_DISPLAY - margin - 15;
+        renderName(backendPos, this.TABLE_WIDTH / 2, bottomY);
+      } else if (displayPos === 'top') {
+        // Top player: center, just below the cards
+        const topY = margin + this.CARD_HEIGHT_DISPLAY + 15;
+        renderName(backendPos, this.TABLE_WIDTH / 2, topY);
+      } else if (displayPos === 'left') {
+        // Left player: on top of the stack
+        const leftX = margin + this.CARD_WIDTH_DISPLAY / 2;
+        const leftCardsStartY = (this.TABLE_HEIGHT - (this.CARD_HEIGHT_DISPLAY + 30 * 9)) / 2;
+        renderName(backendPos, leftX, leftCardsStartY - 10);
+      } else if (displayPos === 'right') {
+        // Right player: on top of the stack
+        const rightX = this.TABLE_WIDTH - margin - this.CARD_WIDTH_DISPLAY / 2;
+        const rightCardsStartY = (this.TABLE_HEIGHT - (this.CARD_HEIGHT_DISPLAY + 30 * 9)) / 2;
+        renderName(backendPos, rightX, rightCardsStartY - 10);
+      }
+    }
   }
 
   private renderScores(): void {
@@ -1064,11 +1486,132 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       this.ctx.fillText(bidText, this.TABLE_WIDTH / 2, kittyY - 10);
     }
 
-    // Show current bidder below the kitty (with 8px additional space)
-    if (this.game.currentBidder) {
-      this.ctx.textBaseline = 'top';
-      const currentBidderName = this.game.playerNames?.[this.game.currentBidder] || this.game.currentBidder;
-      this.ctx.fillText(`Current Bidder: ${currentBidderName}`, this.TABLE_WIDTH / 2, kittyBottomY + 18);
+    // Render speech bubbles for recent bids
+    this.renderBidSpeechBubbles();
+  }
+
+  private renderBidSpeechBubbles(): void {
+    if (!this.ctx || !this.game || !this.game.gameState.biddingHistory) return;
+
+    const margin = 20;
+    const iconSize = 50;
+    const bubblePadding = 8;
+    const bubbleHeight = 30;
+    const triangleSize = 8;
+
+    // Show only the last 4 bids (one per player)
+    const recentBids = this.game.gameState.biddingHistory.slice(-4);
+
+    for (const bid of recentBids) {
+      const backendPos = bid.player as 'north' | 'south' | 'east' | 'west';
+      const displayPos = this.getDisplayPosition(backendPos);
+      
+      // Determine icon position (same as in renderPlayerIcons)
+      let iconX: number, iconY: number;
+
+      if (displayPos === 'bottom') {
+        iconX = this.TABLE_WIDTH / 2 - iconSize / 2;
+        iconY = this.TABLE_HEIGHT - this.CARD_HEIGHT_DISPLAY - margin - iconSize - 35;
+      } else if (displayPos === 'top') {
+        const topCardsEndX = this.TABLE_WIDTH / 2 + (this.CARD_WIDTH_DISPLAY + (9 - 1) * (this.CARD_WIDTH_DISPLAY * 0.3)) / 2;
+        iconX = topCardsEndX + 20;
+        iconY = margin + 10;
+      } else if (displayPos === 'left') {
+        iconX = margin + this.CARD_WIDTH_DISPLAY / 2 - iconSize / 2;
+        const leftCardsStartY = (this.TABLE_HEIGHT - (this.CARD_HEIGHT_DISPLAY + 30 * 9)) / 2;
+        iconY = leftCardsStartY - iconSize - 45;
+      } else { // right
+        iconX = this.TABLE_WIDTH - margin - this.CARD_WIDTH_DISPLAY / 2 - iconSize / 2;
+        const rightCardsStartY = (this.TABLE_HEIGHT - (this.CARD_HEIGHT_DISPLAY + 30 * 9)) / 2;
+        iconY = rightCardsStartY - iconSize - 45;
+      }
+
+      // Format bid text
+      const bidText = typeof bid.bid === 'number' ? String(bid.bid) : bid.bid.toUpperCase();
+      
+      // Measure text for bubble size
+      this.ctx.font = 'bold 16px Arial';
+      const textWidth = this.ctx.measureText(bidText).width;
+      const bubbleWidth = textWidth + bubblePadding * 2;
+
+      // Position bubble from inside edge of icon
+      let bubbleX: number, bubbleY: number;
+      let trianglePoints: { x: number; y: number }[];
+
+      if (displayPos === 'bottom') {
+        // Bubble above icon
+        bubbleX = iconX + iconSize / 2 - bubbleWidth / 2;
+        bubbleY = iconY - bubbleHeight - triangleSize - 5;
+        trianglePoints = [
+          { x: iconX + iconSize / 2, y: iconY - 5 },
+          { x: iconX + iconSize / 2 - triangleSize, y: bubbleY + bubbleHeight },
+          { x: iconX + iconSize / 2 + triangleSize, y: bubbleY + bubbleHeight }
+        ];
+      } else if (displayPos === 'top') {
+        // Bubble to the left of icon
+        bubbleX = iconX - bubbleWidth - triangleSize - 5;
+        bubbleY = iconY + iconSize / 2 - bubbleHeight / 2;
+        trianglePoints = [
+          { x: iconX - 5, y: iconY + iconSize / 2 },
+          { x: bubbleX + bubbleWidth, y: iconY + iconSize / 2 - triangleSize },
+          { x: bubbleX + bubbleWidth, y: iconY + iconSize / 2 + triangleSize }
+        ];
+      } else if (displayPos === 'left') {
+        // Bubble to the right of icon
+        bubbleX = iconX + iconSize + triangleSize + 5;
+        bubbleY = iconY + iconSize / 2 - bubbleHeight / 2;
+        trianglePoints = [
+          { x: iconX + iconSize + 5, y: iconY + iconSize / 2 },
+          { x: bubbleX, y: iconY + iconSize / 2 - triangleSize },
+          { x: bubbleX, y: iconY + iconSize / 2 + triangleSize }
+        ];
+      } else { // right
+        // Bubble to the left of icon
+        bubbleX = iconX - bubbleWidth - triangleSize - 5;
+        bubbleY = iconY + iconSize / 2 - bubbleHeight / 2;
+        trianglePoints = [
+          { x: iconX - 5, y: iconY + iconSize / 2 },
+          { x: bubbleX + bubbleWidth, y: iconY + iconSize / 2 - triangleSize },
+          { x: bubbleX + bubbleWidth, y: iconY + iconSize / 2 + triangleSize }
+        ];
+      }
+
+      // Draw bubble background
+      this.ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      this.ctx.strokeStyle = '#333';
+      this.ctx.lineWidth = 2;
+      
+      const radius = 6;
+      this.ctx.beginPath();
+      this.ctx.moveTo(bubbleX + radius, bubbleY);
+      this.ctx.lineTo(bubbleX + bubbleWidth - radius, bubbleY);
+      this.ctx.quadraticCurveTo(bubbleX + bubbleWidth, bubbleY, bubbleX + bubbleWidth, bubbleY + radius);
+      this.ctx.lineTo(bubbleX + bubbleWidth, bubbleY + bubbleHeight - radius);
+      this.ctx.quadraticCurveTo(bubbleX + bubbleWidth, bubbleY + bubbleHeight, bubbleX + bubbleWidth - radius, bubbleY + bubbleHeight);
+      this.ctx.lineTo(bubbleX + radius, bubbleY + bubbleHeight);
+      this.ctx.quadraticCurveTo(bubbleX, bubbleY + bubbleHeight, bubbleX, bubbleY + bubbleHeight - radius);
+      this.ctx.lineTo(bubbleX, bubbleY + radius);
+      this.ctx.quadraticCurveTo(bubbleX, bubbleY, bubbleX + radius, bubbleY);
+      this.ctx.closePath();
+      this.ctx.fill();
+      this.ctx.stroke();
+
+      // Draw triangle pointer
+      this.ctx.beginPath();
+      this.ctx.moveTo(trianglePoints[0].x, trianglePoints[0].y);
+      this.ctx.lineTo(trianglePoints[1].x, trianglePoints[1].y);
+      this.ctx.lineTo(trianglePoints[2].x, trianglePoints[2].y);
+      this.ctx.closePath();
+      this.ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      this.ctx.fill();
+      this.ctx.strokeStyle = '#333';
+      this.ctx.stroke();
+
+      // Draw bid text
+      this.ctx.fillStyle = bid.bid === 'pass' ? '#ff5555' : '#333';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText(bidText, bubbleX + bubbleWidth / 2, bubbleY + bubbleHeight / 2);
     }
   }
 
@@ -1084,14 +1627,15 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       const { card, player } = this.game.gameState.currentTrick.cards[i];
       const sourceX = this.getCardSourceX(card);
       
-      // Position based on player position
+      // Position based on display position (not backend position)
+      const displayPos = this.getDisplayPosition(player);
       let x = centerX - this.CARD_WIDTH_DISPLAY / 2;
       let y = centerY - this.CARD_HEIGHT_DISPLAY / 2;
 
-      if (player === 'north') y -= trickSpacing;
-      if (player === 'south') y += trickSpacing;
-      if (player === 'east') x += trickSpacing;
-      if (player === 'west') x -= trickSpacing;
+      if (displayPos === 'top') y -= trickSpacing;
+      if (displayPos === 'bottom') y += trickSpacing;
+      if (displayPos === 'right') x += trickSpacing;
+      if (displayPos === 'left') x -= trickSpacing;
 
       this.ctx.drawImage(
         this.cardImage,

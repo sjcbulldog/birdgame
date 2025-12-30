@@ -3,6 +3,7 @@ import { Observable, fromEvent, EMPTY, Subject } from 'rxjs';
 import { io, Socket } from 'socket.io-client';
 import { Table } from '../models/table.model';
 import { Router } from '@angular/router';
+import { environment } from '../../environments/environment';
 
 @Injectable({
   providedIn: 'root',
@@ -24,7 +25,7 @@ export class SocketService implements OnDestroy {
 
     const auth = token ? { token } : {};
     
-    this.socket = io('http://localhost:3000', {
+    this.socket = io(environment.wsUrl, {
       transports: ['websocket'],
       auth,
     });

@@ -59,4 +59,58 @@
       </div>
     </div>
   }
-</div>
+  
+  <!-- Bidding UI -->
+  @if (canBid()) {
+    <div class="bidding-panel">
+      <h3>Your Bid</h3>
+      <div class="bid-info">
+        @if (game?.highBid) {
+          <p>Current High Bid: <strong>{{ game?.highBid }}</strong></p>
+        } @else {
+          <p>No bids yet - starting at 60</p>
+        }
+      </div>
+      
+      <div class="bid-controls">
+        <!-- Pass Button -->
+        <button 
+          class="btn btn-pass" 
+          (click)="placeBid('pass')"
+          [disabled]="isSubmittingBid">
+          Pass
+        </button>
+
+        <!-- Check Button (only if partner is high bidder) -->
+        @if (canCheck()) {
+          <button 
+            class="btn btn-check" 
+            (click)="placeBid('check')"
+            [disabled]="isSubmittingBid">
+            Check
+          </button>
+        }
+
+        <!-- Numerical Bid -->
+        <div class="bid-input-group">
+          <label for="bidAmount">Bid Amount:</label>
+          <select 
+            id="bidAmount"
+            [(ngModel)]="selectedBidAmount"
+            (ngModelChange)="onBidAmountChange()"
+            class="bid-select"
+            [disabled]="isSubmittingBid">
+            @for (option of getBidOptions(); track option) {
+              <option [value]="option">{{ option }}</option>
+            }
+          </select>
+          <button 
+            class="btn btn-bid" 
+            (click)="placeBid(selectedBidAmount)"
+            [disabled]="isSubmittingBid">
+            Bid {{ selectedBidAmount }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
