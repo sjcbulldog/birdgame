@@ -41,10 +41,6 @@ def simulate_game():
         
         # Choose random bird type from hand
         available_birds = current_player.get_available_birds()
-        if not available_birds:
-            game.next_turn()
-            continue
-            
         bird_type = random.choice(available_birds)
         
         print(f"{current_player.name} asks {target.name} for {bird_type}...")

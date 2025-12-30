@@ -13,9 +13,11 @@ print()
 
 game = BirdGame(["Alice", "Bob"])
 
+cards_dealt = 40 - game.deck.cards_remaining()
+
 print("Game initialized!")
 print(f"Total cards in deck: 40 (10 bird types × 4 seasons)")
-print(f"Cards dealt to players: {14} (7 per player for 2-player game)")
+print(f"Cards dealt to players: {cards_dealt} (7 per player for 2-player game)")
 print(f"Cards remaining in deck: {game.deck.cards_remaining()}")
 print()
 
