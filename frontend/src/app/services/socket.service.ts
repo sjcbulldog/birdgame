@@ -43,12 +43,6 @@ export class SocketService implements OnDestroy {
       console.error('Socket error:', error);
     });
 
-    // Listen for game started event
-    this.socket.on('gameStarted', (data: { tableId: string; gameId: string }) => {
-      console.log('Game started event received:', data);
-      this.router.navigate(['/game', data.gameId]);
-    });
-
     // Listen for game state updates
     this.socket.on('gameState', (data: any) => {
       console.log('Game state event received:', data);

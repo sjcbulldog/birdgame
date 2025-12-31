@@ -115,7 +115,9 @@ export class GameGateway implements OnModuleInit {
   }
 
   emitGameStarted(tableId: string, gameId: string) {
-    this.server.to(`table:${tableId}`).emit('gameStarted', { tableId, gameId });
+    // Emit globally to all connected clients
+    // The frontend will handle navigation for players at this table
+    this.server.emit('gameStarted', { tableId, gameId });
   }
 
   private personalizeGameState(game: any, forPlayer: PlayerPosition) {

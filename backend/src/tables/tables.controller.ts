@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { JoinTableDto } from './dto/join-table.dto';
 import { TableResponseDto } from './dto/table-response.dto';
 import { GameService } from '../game/game.service';
+import { GameGateway } from '../game/game.gateway';
 
 @Controller('api/tables')
 @UseGuards(JwtAuthGuard)
@@ -12,6 +13,8 @@ export class TablesController {
     private readonly tablesService: TablesService,
     @Inject(forwardRef(() => GameService))
     private readonly gameService: GameService,
+    @Inject(forwardRef(() => GameGateway))
+    private readonly gameGateway: GameGateway,
   ) {}
 
   @Get()
@@ -58,6 +61,8 @@ export class TablesController {
   async startGame(@Param('id') tableId: string, @Request() req) {
     try {
       const game = await this.gameService.createGame(tableId);
+      // Emit gameStarted event to all clients watching this table
+      this.gameGateway.emitGameStarted(tableId, game.id);
       // Don't start dealing yet - wait for players to be ready
       return { success: true, gameId: game.id };
     } catch (error) {

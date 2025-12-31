@@ -39,6 +39,12 @@ export class HomeComponent implements OnInit {
     this.socketService.onTableUpdated().subscribe(tables => {
       this.tables.set(tables);
     });
+
+    // Subscribe to game started events - navigate all players when game starts
+    this.socketService.onGameStarted().subscribe(data => {
+      console.log('Game started event received in home component:', data);
+      this.router.navigate(['/game', data.gameId]);
+    });
   }
 
   loadTables(): void {
@@ -128,11 +134,9 @@ export class HomeComponent implements OnInit {
   startGame(tableId: string): void {
     this.tableService.startGame(tableId).subscribe({
       next: (response) => {
-        // The gameStarted socket event will handle navigation
-        // But we can also navigate directly with the gameId
-        if (response.gameId) {
-          this.router.navigate(['/game', response.gameId]);
-        }
+        // Don't navigate directly - let the gameStarted socket event handle navigation
+        // This ensures all players at the table are navigated together
+        console.log('Game start request sent, waiting for gameStarted event...');
       },
       error: (error) => {
         console.error('Error starting game:', error);

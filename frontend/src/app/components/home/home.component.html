@@ -52,6 +52,7 @@
                  (click)="onPositionClick(table.id, 'north', !!table.positions.north)">
               @if (table.positions.north) {
                 <img src="/api/images/user.png" alt="North player" />
+                <span class="player-name player-name-left">{{ table.positions.north.username }}</span>
               } @else {
                 <img src="/api/images/frame.png" alt="Empty seat" />
               }
@@ -65,6 +66,7 @@
                  (click)="onPositionClick(table.id, 'south', !!table.positions.south)">
               @if (table.positions.south) {
                 <img src="/api/images/user.png" alt="South player" />
+                <span class="player-name player-name-right">{{ table.positions.south.username }}</span>
               } @else {
                 <img src="/api/images/frame.png" alt="Empty seat" />
               }
@@ -78,6 +80,7 @@
                  (click)="onPositionClick(table.id, 'east', !!table.positions.east)">
               @if (table.positions.east) {
                 <img src="/api/images/user.png" alt="East player" />
+                <span class="player-name player-name-below">{{ table.positions.east.username }}</span>
               } @else {
                 <img src="/api/images/frame.png" alt="Empty seat" />
               }
@@ -91,6 +94,7 @@
                  (click)="onPositionClick(table.id, 'west', !!table.positions.west)">
               @if (table.positions.west) {
                 <img src="/api/images/user.png" alt="West player" />
+                <span class="player-name player-name-below">{{ table.positions.west.username }}</span>
               } @else {
                 <img src="/api/images/frame.png" alt="Empty seat" />
               }

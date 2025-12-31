@@ -7,6 +7,8 @@ import { SocketService } from '../../services/socket.service';
 import { TableService } from '../../services/table.service';
 import { User } from '../../models/auth.model';
 
+type PlayerPosition = 'north' | 'south' | 'east' | 'west';
+
 interface Card {
   color: 'red' | 'black' | 'green' | 'yellow' | 'bird';
   value: number;
@@ -90,6 +92,9 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   selectedBidAmount: number = 60;
   isSubmittingBid = false;
 
+  // Selecting state - track selected cards for discard
+  selectedCardsForDiscard: Set<string> = new Set();
+
   // Position mapping: backend position -> display position
   // Display positions: bottom (current user), top, left, right
   private positionMap: Record<string, 'bottom' | 'top' | 'left' | 'right'> = {};
@@ -135,10 +140,10 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   // Card dimensions
   private readonly CARD_WIDTH_SOURCE = 1024;
   private readonly CARD_HEIGHT_SOURCE = 1536;
-  private readonly CARD_WIDTH_DISPLAY = 128;
-  private readonly CARD_HEIGHT_DISPLAY = 192;
-  private readonly TABLE_WIDTH = 1280;
-  private readonly TABLE_HEIGHT = 1024;
+  private readonly CARD_WIDTH_DISPLAY = 77;
+  private readonly CARD_HEIGHT_DISPLAY = 115;
+  private readonly TABLE_WIDTH = 1024;
+  private readonly TABLE_HEIGHT = 819;
 
   ngOnInit(): void {
     this.authService.currentUser$.subscribe(user => {
@@ -452,8 +457,8 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
 
-    const margin = 20;
-    const cardOverlapVertical = 30; // for left/right positions
+    const margin = 12;
+    const cardOverlapVertical = 18; // for left/right positions
     const cardOverlapHorizontal = this.CARD_WIDTH_DISPLAY * 0.875; // 7/8 width for opponents
     const cardOverlapTight = this.CARD_WIDTH_DISPLAY * 0.3; // Tight overlap for top position
     const cardSpacingBottom = this.CARD_WIDTH_DISPLAY + 2; // 2px gap between cards for bottom (current user)
@@ -523,7 +528,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     this.renderScores();
 
     // Draw player icons at four display positions based on position mapping
-    const iconSize = 80;
+    const iconSize = 48;
     const backendPositions: Array<'north' | 'south' | 'east' | 'west'> = ['north', 'south', 'east', 'west'];
 
     backendPositions.forEach(backendPos => {
@@ -994,9 +999,9 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   onCanvasClick(event: MouseEvent): void {
-    if (!this.game || this.game.state !== 'new') return;
+    if (!this.game || !this.canvasRef) return;
 
-    const canvas = this.canvasRef?.nativeElement;
+    const canvas = this.canvasRef.nativeElement;
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
@@ -1005,16 +1010,101 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     const x = (event.clientX - rect.left) * scaleX;
     const y = (event.clientY - rect.top) * scaleY;
 
-    const buttonWidth = 200;
-    const buttonHeight = 60;
-    const buttonX = this.TABLE_WIDTH / 2 - buttonWidth / 2;
-    const buttonY = this.TABLE_HEIGHT / 2 - buttonHeight / 2;
+    // Handle start button in 'new' state
+    if (this.game.state === 'new') {
+      const buttonWidth = 200;
+      const buttonHeight = 60;
+      const buttonX = this.TABLE_WIDTH / 2 - buttonWidth / 2;
+      const buttonY = this.TABLE_HEIGHT / 2 - buttonHeight / 2;
 
-    // Check if click is within the start button
-    if (x >= buttonX && x <= buttonX + buttonWidth &&
-        y >= buttonY && y <= buttonY + buttonHeight) {
-      this.onStartGame();
+      if (x >= buttonX && x <= buttonX + buttonWidth &&
+          y >= buttonY && y <= buttonY + buttonHeight) {
+        this.onStartGame();
+      }
+      return;
     }
+
+    // Handle card selection in 'selecting' state
+    if (this.game.state === 'selecting' && this.game.highBidder === this.myPosition) {
+      this.handleCardSelectionClick(x, y);
+      return;
+    }
+
+    // Handle discard button click in selecting state
+    if (this.game.state === 'selecting' && this.game.highBidder === this.myPosition && this.selectedCardsForDiscard.size === 6) {
+      const buttonWidth = 120;
+      const buttonHeight = 50;
+      const buttonX = this.TABLE_WIDTH - buttonWidth - 20;
+      const buttonY = this.TABLE_HEIGHT - buttonHeight - 20;
+
+      if (x >= buttonX && x <= buttonX + buttonWidth &&
+          y >= buttonY && y <= buttonY + buttonHeight) {
+        this.onDiscardCards();
+      }
+    }
+  }
+
+  private handleCardSelectionClick(x: number, y: number): void {
+    if (!this.game || !this.myPosition) return;
+
+    const margin = 12;
+    const cardSpacingBottom = this.CARD_WIDTH_DISPLAY + 2;
+    const backendPos = this.myPosition as 'north' | 'south' | 'east' | 'west';
+    const cards = this.sortCards(this.game.gameState.hands[backendPos]);
+    const totalCards = cards.length;
+    const topRowCount = 6;
+    const bottomRowCount = totalCards - topRowCount;
+    const rowGap = 10;
+
+    // Calculate positions
+    const bottomRowY = this.TABLE_HEIGHT - this.CARD_HEIGHT_DISPLAY - margin;
+    const bottomRowWidth = this.CARD_WIDTH_DISPLAY + (bottomRowCount - 1) * cardSpacingBottom;
+    const bottomRowStartX = (this.TABLE_WIDTH - bottomRowWidth) / 2;
+    const topRowY = bottomRowY - this.CARD_HEIGHT_DISPLAY - rowGap;
+    const topRowWidth = this.CARD_WIDTH_DISPLAY + (topRowCount - 1) * cardSpacingBottom;
+    const topRowStartX = (this.TABLE_WIDTH - topRowWidth) / 2;
+
+    const topRowCards = cards.slice(-topRowCount);
+    const bottomRowCards = cards.slice(0, bottomRowCount);
+
+    // Check top row
+    for (let i = 0; i < topRowCount; i++) {
+      const cardX = topRowStartX + i * cardSpacingBottom;
+      if (x >= cardX && x <= cardX + this.CARD_WIDTH_DISPLAY &&
+          y >= topRowY && y <= topRowY + this.CARD_HEIGHT_DISPLAY) {
+        this.toggleCardSelection(topRowCards[i].id);
+        return;
+      }
+    }
+
+    // Check bottom row
+    for (let i = 0; i < bottomRowCount; i++) {
+      const cardX = bottomRowStartX + i * cardSpacingBottom;
+      if (x >= cardX && x <= cardX + this.CARD_WIDTH_DISPLAY &&
+          y >= bottomRowY && y <= bottomRowY + this.CARD_HEIGHT_DISPLAY) {
+        this.toggleCardSelection(bottomRowCards[i].id);
+        return;
+      }
+    }
+  }
+
+  private toggleCardSelection(cardId: string): void {
+    if (this.selectedCardsForDiscard.has(cardId)) {
+      this.selectedCardsForDiscard.delete(cardId);
+    } else {
+      if (this.selectedCardsForDiscard.size < 6) {
+        this.selectedCardsForDiscard.add(cardId);
+      }
+    }
+    this.renderTable();
+  }
+
+  private onDiscardCards(): void {
+    if (!this.gameId || !this.myPosition || this.selectedCardsForDiscard.size !== 6) return;
+
+    const selectedCardIds = Array.from(this.selectedCardsForDiscard);
+    this.socketService.selectCards(this.gameId, this.myPosition as PlayerPosition, selectedCardIds);
+    this.selectedCardsForDiscard.clear();
   }
 
   private renderPlayerHand(backendPosition: string, cards: Card[], margin: number, overlap: number): void {
@@ -1092,16 +1182,16 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!this.ctx || !this.cardImage || !this.game || !this.myPosition) return;
 
     const backendPos = this.myPosition as 'north' | 'south' | 'east' | 'west';
-    const cards = this.sortCards(this.game.gameState.hands[backendPos]);
-    const totalCards = cards.length; // Should be 15 (9 original + 6 from kitty)
+    const allCards = this.game.gameState.hands[backendPos];
+    const totalCards = allCards.length; // Should be 15 (9 original + 6 from kitty)
     
-    // Split into two rows: 6 kitty cards on top row, 9 original cards on bottom row
+    // Split into two rows BEFORE sorting: first 9 are original, last 6 are from kitty
     const topRowCount = 6;
-    const bottomRowCount = totalCards - topRowCount;
+    const bottomRowCount = 9;
     
-    // Reverse the arrays so kitty cards (last 6) are on top
-    const topRowCards = cards.slice(-topRowCount); // Last 6 cards (from kitty)
-    const bottomRowCards = cards.slice(0, bottomRowCount); // First 9 cards (original hand)
+    // Split cards: first 9 are original hand, last 6 are from kitty
+    const bottomRowCards = this.sortCards(allCards.slice(0, bottomRowCount)); // Original 9 cards, sorted
+    const topRowCards = this.sortCards(allCards.slice(bottomRowCount)); // Kitty 6 cards, sorted
     
     // Calculate positions
     const iconSize = 50;
@@ -1126,26 +1216,102 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     for (let i = 0; i < topRowCount; i++) {
       const card = topRowCards[i];
       const sourceX = this.getCardSourceX(card);
+      const cardX = topRowStartX + i * cardSpacing;
+      
+      // Draw card
       this.ctx.drawImage(
         this.cardImage,
         sourceX, 0,
         this.CARD_WIDTH_SOURCE, this.CARD_HEIGHT_SOURCE,
-        topRowStartX + i * cardSpacing, topRowY,
+        cardX, topRowY,
         this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY
       );
+      
+      // Draw selection highlight if selected
+      if (this.selectedCardsForDiscard.has(card.id)) {
+        this.ctx.strokeStyle = '#FFD700';
+        this.ctx.lineWidth = 4;
+        this.ctx.strokeRect(cardX, topRowY, this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY);
+        
+        // Add semi-transparent yellow overlay
+        this.ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
+        this.ctx.fillRect(cardX, topRowY, this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY);
+      }
     }
     
     // Draw bottom row (original hand)
     for (let i = 0; i < bottomRowCount; i++) {
       const card = bottomRowCards[i];
       const sourceX = this.getCardSourceX(card);
+      const cardX = bottomRowStartX + i * cardSpacing;
+      
+      // Draw card
       this.ctx.drawImage(
         this.cardImage,
         sourceX, 0,
         this.CARD_WIDTH_SOURCE, this.CARD_HEIGHT_SOURCE,
-        bottomRowStartX + i * cardSpacing, bottomRowY,
+        cardX, bottomRowY,
         this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY
       );
+      
+      // Draw selection highlight if selected
+      if (this.selectedCardsForDiscard.has(card.id)) {
+        this.ctx.strokeStyle = '#FFD700';
+        this.ctx.lineWidth = 4;
+        this.ctx.strokeRect(cardX, bottomRowY, this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY);
+        
+        // Add semi-transparent yellow overlay
+        this.ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
+        this.ctx.fillRect(cardX, bottomRowY, this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY);
+      }
+    }
+    
+    // Draw "Discard" button when 6 cards are selected
+    if (this.selectedCardsForDiscard.size === 6) {
+      const buttonWidth = 120;
+      const buttonHeight = 50;
+      const buttonX = this.TABLE_WIDTH - buttonWidth - 20;
+      const buttonY = this.TABLE_HEIGHT - buttonHeight - 20;
+      const borderRadius = 10;
+
+      // Button shadow
+      this.ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+      this.ctx.shadowBlur = 8;
+      this.ctx.shadowOffsetX = 2;
+      this.ctx.shadowOffsetY = 2;
+
+      // Button background
+      this.ctx.fillStyle = '#4CAF50';
+      this.ctx.beginPath();
+      this.ctx.moveTo(buttonX + borderRadius, buttonY);
+      this.ctx.lineTo(buttonX + buttonWidth - borderRadius, buttonY);
+      this.ctx.quadraticCurveTo(buttonX + buttonWidth, buttonY, buttonX + buttonWidth, buttonY + borderRadius);
+      this.ctx.lineTo(buttonX + buttonWidth, buttonY + buttonHeight - borderRadius);
+      this.ctx.quadraticCurveTo(buttonX + buttonWidth, buttonY + buttonHeight, buttonX + buttonWidth - borderRadius, buttonY + buttonHeight);
+      this.ctx.lineTo(buttonX + borderRadius, buttonY + buttonHeight);
+      this.ctx.quadraticCurveTo(buttonX, buttonY + buttonHeight, buttonX, buttonY + buttonHeight - borderRadius);
+      this.ctx.lineTo(buttonX, buttonY + borderRadius);
+      this.ctx.quadraticCurveTo(buttonX, buttonY, buttonX + borderRadius, buttonY);
+      this.ctx.closePath();
+      this.ctx.fill();
+
+      // Reset shadow
+      this.ctx.shadowColor = 'transparent';
+      this.ctx.shadowBlur = 0;
+      this.ctx.shadowOffsetX = 0;
+      this.ctx.shadowOffsetY = 0;
+
+      // Button border
+      this.ctx.strokeStyle = '#388E3C';
+      this.ctx.lineWidth = 2;
+      this.ctx.stroke();
+
+      // Button text
+      this.ctx.fillStyle = 'white';
+      this.ctx.font = 'bold 18px Arial';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText('Discard', buttonX + buttonWidth / 2, buttonY + buttonHeight / 2);
     }
     
     // Draw icon for current user (the selecting player) above the kitty cards
@@ -1442,26 +1608,30 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
 
     // Draw score text with aligned columns
     this.ctx.font = '16px Arial';
-    this.ctx.textBaseline = 'top';
+    this.ctx.textBaseline = 'middle';
     this.ctx.fillStyle = '#ffffff';
     
     // Calculate column positions
     const teamColumnX = boxX + boxPadding + maxTeamWidth; // Right edge of team names column
     const scoreColumnX = teamColumnX + colonWidth; // Left edge of scores column
     
+    // Calculate Y positions (centered in each line)
+    const firstLineY = boxY + boxPadding + lineHeight / 2;
+    const secondLineY = boxY + boxPadding + lineHeight + lineHeight / 2;
+    
     // Draw team names (right-aligned)
     this.ctx.textAlign = 'right';
-    this.ctx.fillText(nsTeam, teamColumnX, boxY + boxPadding);
-    this.ctx.fillText(ewTeam, teamColumnX, boxY + boxPadding + lineHeight);
+    this.ctx.fillText(nsTeam, teamColumnX, firstLineY);
+    this.ctx.fillText(ewTeam, teamColumnX, secondLineY);
     
     // Draw colons
     this.ctx.textAlign = 'left';
-    this.ctx.fillText(':', teamColumnX, boxY + boxPadding);
-    this.ctx.fillText(':', teamColumnX, boxY + boxPadding + lineHeight);
+    this.ctx.fillText(':', teamColumnX, firstLineY);
+    this.ctx.fillText(':', teamColumnX, secondLineY);
     
     // Draw scores (left-aligned)
-    this.ctx.fillText(String(this.game.northSouthScore), scoreColumnX, boxY + boxPadding);
-    this.ctx.fillText(String(this.game.eastWestScore), scoreColumnX, boxY + boxPadding + lineHeight);
+    this.ctx.fillText(String(this.game.northSouthScore), scoreColumnX, firstLineY);
+    this.ctx.fillText(String(this.game.eastWestScore), scoreColumnX, secondLineY);
   }
 
   private renderBiddingInfo(): void {
@@ -1495,8 +1665,8 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
 
     const margin = 20;
     const iconSize = 50;
-    const bubblePadding = 8;
-    const bubbleHeight = 30;
+    const bubblePadding = 12;
+    const bubbleHeight = 40;
     const triangleSize = 8;
 
     // Show only the last 4 bids (one per player)
@@ -1530,7 +1700,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       const bidText = typeof bid.bid === 'number' ? String(bid.bid) : bid.bid.toUpperCase();
       
       // Measure text for bubble size
-      this.ctx.font = 'bold 16px Arial';
+      this.ctx.font = 'bold 22px Arial';
       const textWidth = this.ctx.measureText(bidText).width;
       const bubbleWidth = textWidth + bubblePadding * 2;
 

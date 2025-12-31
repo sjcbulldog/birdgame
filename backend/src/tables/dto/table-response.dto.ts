@@ -1,5 +1,6 @@
 ﻿export class PlayerDto {
   id: string;
+  username: string;
   email: string;
   firstName?: string;
   lastName?: string;

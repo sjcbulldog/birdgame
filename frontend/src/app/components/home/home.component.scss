@@ -121,7 +121,7 @@
   background: white;
   border-radius: 12px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
+  overflow: visible;
   transition: transform 0.2s, box-shadow 0.2s;
 
   &:hover {
@@ -154,14 +154,47 @@
       height: 50px;
       transition: transform 0.2s;
       display: flex;
-      flex-direction: column;
       align-items: center;
-      gap: 4px;
+      justify-content: center;
 
       img {
         width: 100%;
         height: 100%;
         object-fit: contain;
+      }
+
+      .player-name {
+        position: absolute;
+        font-size: 14px;
+        font-weight: 700;
+        color: #000000 !important;
+        background: #ffffff;
+        padding: 4px 8px;
+        border-radius: 8px;
+        white-space: nowrap;
+        box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+        pointer-events: none;
+        z-index: 10;
+        border: 2px solid #000000;
+        line-height: 1.2;
+      }
+
+      .player-name-left {
+        right: calc(100% + 4px);
+        top: 50%;
+        transform: translateY(-50%);
+      }
+
+      .player-name-right {
+        left: calc(100% + 4px);
+        top: 50%;
+        transform: translateY(-50%);
+      }
+
+      .player-name-below {
+        top: calc(100% + 12px);
+        left: 50%;
+        transform: translateX(-50%);
       }
 
       .computer-name {
