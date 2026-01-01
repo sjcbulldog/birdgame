@@ -110,6 +110,10 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   private displayingCompletedTrick: { cards: any[], winner: string } | null = null;
   private lastCompletedTrickCount = 0;
   private readonly TRICK_DISPLAY_DELAY = 2000; // 2 seconds to show completed trick
+  
+  // Trick animation to won pile
+  private animatingTrickToWonPile: { cards: any[], winner: string, progress: number, startTime: number } | null = null;
+  private readonly TRICK_TO_WON_PILE_DURATION = 1000; // 1 second animation
 
   // Position mapping: backend position -> display position
   // Display positions: bottom (current user), top, left, right
@@ -208,10 +212,16 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
           };
           this.lastCompletedTrickCount = game.gameState.completedTricks.length;
           
-          // Clear the display after 2 seconds
+          // After 2 seconds, start animation to won pile
           setTimeout(() => {
             this.displayingCompletedTrick = null;
-            this.renderTable();
+            this.animatingTrickToWonPile = {
+              cards: lastCompletedTrick.cards,
+              winner: lastCompletedTrick.winner,
+              progress: 0,
+              startTime: Date.now()
+            };
+            this.animateTrickToWonPile();
           }, this.TRICK_DISPLAY_DELAY);
         }
         
@@ -510,6 +520,120 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     requestAnimationFrame(() => this.animateDealing());
   }
 
+  private animateTrickToWonPile(): void {
+    if (!this.animatingTrickToWonPile) return;
+
+    const currentTime = Date.now();
+    const elapsed = currentTime - this.animatingTrickToWonPile.startTime;
+    this.animatingTrickToWonPile.progress = Math.min(elapsed / this.TRICK_TO_WON_PILE_DURATION, 1);
+
+    if (this.animatingTrickToWonPile.progress >= 1) {
+      // Animation complete
+      this.animatingTrickToWonPile = null;
+      this.renderTable();
+      return;
+    }
+
+    this.renderTable();
+    requestAnimationFrame(() => this.animateTrickToWonPile());
+  }
+
+  private getWonPileLocation(winner: string): { x: number, y: number } {
+    const margin = 12;
+    
+    // Determine team
+    const isNorthSouthTeam = winner === 'north' || winner === 'south';
+    
+    if (isNorthSouthTeam) {
+      // North/South team: to the left of north (top) player's hand
+      const topCardsStartX = this.TABLE_WIDTH / 2 - (this.CARD_WIDTH_DISPLAY + (9 - 1) * (this.CARD_WIDTH_DISPLAY * 0.3)) / 2;
+      return {
+        x: topCardsStartX - this.CARD_WIDTH_DISPLAY - 20,
+        y: margin + 10
+      };
+    } else {
+      // East/West team: below right (east) player's hand
+      const rightCardsStartY = (this.TABLE_HEIGHT - (this.CARD_HEIGHT_DISPLAY + 30 * 9)) / 2;
+      const rightCardsEndY = rightCardsStartY + this.CARD_HEIGHT_DISPLAY + 30 * 9;
+      return {
+        x: this.TABLE_WIDTH - margin - this.CARD_WIDTH_DISPLAY,
+        y: rightCardsEndY + 20
+      };
+    }
+  }
+
+  private renderWonPiles(): void {
+    if (!this.ctx || !this.game || this.game.state !== 'playing') return;
+
+    // Count tricks won by each team
+    let northSouthTricks = this.game.gameState.completedTricks.filter(
+      trick => trick.winner === 'north' || trick.winner === 'south'
+    ).length;
+    let eastWestTricks = this.game.gameState.completedTricks.filter(
+      trick => trick.winner === 'east' || trick.winner === 'west'
+    ).length;
+
+    // If currently animating a trick to won pile, don't count it yet for card back display
+    if (this.animatingTrickToWonPile) {
+      const winner = this.animatingTrickToWonPile.winner;
+      if (winner === 'north' || winner === 'south') {
+        northSouthTricks = Math.max(0, northSouthTricks - 1);
+      } else {
+        eastWestTricks = Math.max(0, eastWestTricks - 1);
+      }
+    }
+
+    // Render North/South team won pile
+    const nsLocation = this.getWonPileLocation('north');
+    if (northSouthTricks > 0) {
+      // Draw card back
+      if (this.cardImage && this.cardImage.complete) {
+        const sourceX = 57 * this.CARD_WIDTH_SOURCE; // Card back
+        this.ctx.drawImage(
+          this.cardImage,
+          sourceX, 0,
+          this.CARD_WIDTH_SOURCE, this.CARD_HEIGHT_SOURCE,
+          nsLocation.x, nsLocation.y,
+          this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY
+        );
+      }
+    } else {
+      // Draw dotted rectangle
+      this.ctx.strokeStyle = '#000000';
+      this.ctx.lineWidth = 2;
+      this.ctx.setLineDash([5, 5]);
+      this.ctx.beginPath();
+      this.ctx.roundRect(nsLocation.x, nsLocation.y, this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY, 8);
+      this.ctx.stroke();
+      this.ctx.setLineDash([]); // Reset to solid line
+    }
+
+    // Render East/West team won pile
+    const ewLocation = this.getWonPileLocation('east');
+    if (eastWestTricks > 0) {
+      // Draw card back
+      if (this.cardImage && this.cardImage.complete) {
+        const sourceX = 57 * this.CARD_WIDTH_SOURCE; // Card back
+        this.ctx.drawImage(
+          this.cardImage,
+          sourceX, 0,
+          this.CARD_WIDTH_SOURCE, this.CARD_HEIGHT_SOURCE,
+          ewLocation.x, ewLocation.y,
+          this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY
+        );
+      }
+    } else {
+      // Draw dotted rectangle
+      this.ctx.strokeStyle = '#000000';
+      this.ctx.lineWidth = 2;
+      this.ctx.setLineDash([5, 5]);
+      this.ctx.beginPath();
+      this.ctx.roundRect(ewLocation.x, ewLocation.y, this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY, 8);
+      this.ctx.stroke();
+      this.ctx.setLineDash([]); // Reset to solid line
+    }
+  }
+
   private renderTable(): void {
     if (!this.ctx || !this.cardImage || !this.game) return;
     
@@ -578,6 +702,11 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     // Render player icons with names for all players
     this.renderPlayerIcons();
 
+    // Render won piles during playing state
+    if (this.game.state === 'playing') {
+      this.renderWonPiles();
+    }
+
     // Render centerPile if in initial state
     if (this.game.state === 'bidding' && (this.game.gameState.centerPile.faceDown.length > 0 || this.game.gameState.centerPile.faceUp)) {
       this.renderCenterPile();
@@ -585,8 +714,8 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       this.renderBiddingInfo();
     }
 
-    // Render current trick if playing (or if displaying completed trick)
-    if (this.game.state === 'playing' && (this.game.gameState.currentTrick.cards.length > 0 || this.displayingCompletedTrick)) {
+    // Render current trick if playing (or if displaying completed trick or animating to won pile)
+    if (this.game.state === 'playing' && (this.game.gameState.currentTrick.cards.length > 0 || this.displayingCompletedTrick || this.animatingTrickToWonPile)) {
       this.renderCurrentTrick();
     }
 
@@ -1290,12 +1419,29 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     const displayPosition = this.getDisplayPosition(backendPosition);
     const isMyHand = backendPosition === this.myPosition;
     const cardCount = cards.length;
+    
+    // Determine if this player is active (needs to play or bid)
+    const isActivePlayer = (this.game?.state === 'playing' && this.getCurrentPlayer() === backendPosition) ||
+                          (this.game?.state === 'bidding' && this.game?.currentBidder === backendPosition);
+    const padding = 8; // Padding around hand for yellow rectangle
 
     if (displayPosition === 'bottom') {
       const bottomY = this.TABLE_HEIGHT - this.CARD_HEIGHT_DISPLAY - margin;
       const totalWidth = this.CARD_WIDTH_DISPLAY + (cardCount - 1) * overlap;
       const startX = (this.TABLE_WIDTH - totalWidth) / 2;
       const isPlayingState = this.game?.state === 'playing';
+      
+      // Draw yellow rectangle around active player's hand
+      if (isActivePlayer) {
+        this.ctx.strokeStyle = '#FFD700';
+        this.ctx.lineWidth = 4;
+        this.ctx.strokeRect(
+          startX - padding,
+          bottomY - padding,
+          totalWidth + padding * 2,
+          this.CARD_HEIGHT_DISPLAY + padding * 2
+        );
+      }
 
       for (let i = 0; i < cardCount; i++) {
         const card = cards[i];
@@ -1317,6 +1463,18 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       const topY = margin;
       const totalWidth = this.CARD_WIDTH_DISPLAY + (cardCount - 1) * overlap;
       const startX = (this.TABLE_WIDTH - totalWidth) / 2;
+      
+      // Draw yellow rectangle around active player's hand
+      if (isActivePlayer) {
+        this.ctx.strokeStyle = '#FFD700';
+        this.ctx.lineWidth = 4;
+        this.ctx.strokeRect(
+          startX - padding,
+          topY - padding,
+          totalWidth + padding * 2,
+          this.CARD_HEIGHT_DISPLAY + padding * 2
+        );
+      }
 
       for (let i = 0; i < cardCount; i++) {
         const sourceX = 57 * this.CARD_WIDTH_SOURCE; // Card back
@@ -1332,6 +1490,18 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       const leftX = margin;
       const totalHeight = this.CARD_HEIGHT_DISPLAY + (cardCount - 1) * overlap;
       const startY = (this.TABLE_HEIGHT - totalHeight) / 2;
+      
+      // Draw yellow rectangle around active player's hand
+      if (isActivePlayer) {
+        this.ctx.strokeStyle = '#FFD700';
+        this.ctx.lineWidth = 4;
+        this.ctx.strokeRect(
+          leftX - padding,
+          startY - padding,
+          this.CARD_WIDTH_DISPLAY + padding * 2,
+          totalHeight + padding * 2
+        );
+      }
 
       for (let i = 0; i < cardCount; i++) {
         const sourceX = 57 * this.CARD_WIDTH_SOURCE; // Card back
@@ -1347,6 +1517,18 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       const rightX = this.TABLE_WIDTH - this.CARD_WIDTH_DISPLAY - margin;
       const totalHeight = this.CARD_HEIGHT_DISPLAY + (cardCount - 1) * overlap;
       const startY = (this.TABLE_HEIGHT - totalHeight) / 2;
+      
+      // Draw yellow rectangle around active player's hand
+      if (isActivePlayer) {
+        this.ctx.strokeStyle = '#FFD700';
+        this.ctx.lineWidth = 4;
+        this.ctx.strokeRect(
+          rightX - padding,
+          startY - padding,
+          this.CARD_WIDTH_DISPLAY + padding * 2,
+          totalHeight + padding * 2
+        );
+      }
 
       for (let i = 0; i < cardCount; i++) {
         const sourceX = 57 * this.CARD_WIDTH_SOURCE; // Card back
@@ -1633,8 +1815,8 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       // Draw icon background circle
       this.ctx.beginPath();
       this.ctx.arc(iconX + iconSize / 2, iconY + iconSize / 2, iconSize / 2, 0, 2 * Math.PI);
-      // Only highlight icon for active player, not dealer
-      this.ctx.fillStyle = isActivePlayer ? '#ffa500' : '#4CAF50';
+      // Always green icon
+      this.ctx.fillStyle = '#4CAF50';
       this.ctx.fill();
       this.ctx.strokeStyle = '#ffffff';
       this.ctx.lineWidth = 2;
@@ -2049,10 +2231,18 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     const centerY = this.TABLE_HEIGHT / 2;
     const trickSpacing = 70;
 
-    // Show completed trick if we're in the 2-second display period, otherwise show current trick
-    const cardsToRender = this.displayingCompletedTrick 
-      ? this.displayingCompletedTrick.cards 
-      : this.game.gameState.currentTrick.cards;
+    // Determine which cards to render and if we're animating
+    let cardsToRender;
+    let isAnimatingToWonPile = false;
+    
+    if (this.animatingTrickToWonPile) {
+      cardsToRender = this.animatingTrickToWonPile.cards;
+      isAnimatingToWonPile = true;
+    } else if (this.displayingCompletedTrick) {
+      cardsToRender = this.displayingCompletedTrick.cards;
+    } else {
+      cardsToRender = this.game.gameState.currentTrick.cards;
+    }
 
     for (let i = 0; i < cardsToRender.length; i++) {
       const { card, player } = cardsToRender[i];
@@ -2067,6 +2257,29 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       if (displayPos === 'bottom') y += trickSpacing;
       if (displayPos === 'right') x += trickSpacing;
       if (displayPos === 'left') x -= trickSpacing;
+
+      // If animating to won pile, interpolate position
+      if (isAnimatingToWonPile && this.animatingTrickToWonPile) {
+        const wonPileLocation = this.getWonPileLocation(this.animatingTrickToWonPile.winner);
+        const progress = this.animatingTrickToWonPile.progress;
+        
+        // Ease-in interpolation for smoother animation
+        const easeProgress = progress * progress;
+        
+        // Calculate target position - all cards converge to same point
+        const targetX = wonPileLocation.x;
+        const targetY = wonPileLocation.y;
+        
+        // Interpolate position
+        x = x + (targetX - x) * easeProgress;
+        y = y + (targetY - y) * easeProgress;
+        
+        // As cards move, they stack on top of each other
+        // Add slight offset that decreases over time to show stacking
+        const stackOffset = (3 - i) * 2 * (1 - easeProgress);
+        x += stackOffset;
+        y += stackOffset;
+      }
 
       this.ctx.drawImage(
         this.cardImage,
