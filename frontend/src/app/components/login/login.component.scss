@@ -53,6 +53,12 @@
     font-size: 14px;
   }
 
+  .password-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
   .form-control {
     width: 100%;
     padding: 12px 16px;
@@ -69,6 +75,37 @@
 
     &.invalid {
       border-color: #dc3545;
+    }
+  }
+
+  .password-input-wrapper .form-control {
+    padding-right: 48px;
+  }
+
+  .password-toggle-btn {
+    position: absolute;
+    right: 12px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #666;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s;
+
+    &:hover {
+      color: #667eea;
+    }
+
+    &:focus {
+      outline: none;
+      color: #667eea;
+    }
+
+    svg {
+      display: block;
     }
   }
 

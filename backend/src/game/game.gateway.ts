@@ -114,8 +114,50 @@ export class GameGateway implements OnModuleInit {
     }
   }
 
+  @SubscribeMessage('scoringReady')
+  async handleScoringReady(
+    @MessageBody() data: { gameId: string; player: string },
+  ) {
+    const { game, allHumansReady, gameComplete, winningTeam } = await this.gameService.setScoringReady(data.gameId, data.player as any);
+    
+    // Broadcast updated scoring ready state to all players
+    this.server.to(`game:${data.gameId}`).emit('scoringReadyUpdate', {
+      scoringReady: game.scoringReady,
+      allHumansReady,
+      gameComplete,
+      winningTeam,
+    });
+
+    // If all human players are ready
+    if (allHumansReady) {
+      if (gameComplete) {
+        // Game is complete - transition to COMPLETE state
+        await this.gameService.completeGame(data.gameId);
+        await this.emitGameUpdate(data.gameId);
+      } else {
+        // Continue to next hand
+        await this.gameService.startDealing(data.gameId);
+        await this.emitGameUpdate(data.gameId);
+      }
+    }
+
+    return { event: 'scoringReady', data: { allHumansReady, gameComplete, winningTeam } };
+  }
+
+  @SubscribeMessage('startNextHand')
+  async handleStartNextHand(
+    @MessageBody() data: { gameId: string },
+  ) {
+    // Start dealing for the next hand
+    const game = await this.gameService.startDealing(data.gameId);
+    await this.emitGameUpdate(data.gameId);
+    return { event: 'nextHandStarted', data: game };
+  }
+
   emitGameStarted(tableId: string, gameId: string) {
-    this.server.to(`table:${tableId}`).emit('gameStarted', { tableId, gameId });
+    // Emit globally to all connected clients
+    // The frontend will handle navigation for players at this table
+    this.server.emit('gameStarted', { tableId, gameId });
   }
 
   private personalizeGameState(game: any, forPlayer: PlayerPosition) {

@@ -18,6 +18,8 @@ export interface Table {
   tableNumber: number;
   positions: TablePositions;
   watcherCount: number;
+  activeGameId?: string;
+  watchers?: Player[];
 }
 
 export type Position = 'north' | 'south' | 'east' | 'west';

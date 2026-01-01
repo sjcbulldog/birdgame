@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { JoinTableDto } from './dto/join-table.dto';
 import { TableResponseDto } from './dto/table-response.dto';
 import { GameService } from '../game/game.service';
+import { GameGateway } from '../game/game.gateway';
 
 @Controller('api/tables')
 @UseGuards(JwtAuthGuard)
@@ -12,6 +13,8 @@ export class TablesController {
     private readonly tablesService: TablesService,
     @Inject(forwardRef(() => GameService))
     private readonly gameService: GameService,
+    @Inject(forwardRef(() => GameGateway))
+    private readonly gameGateway: GameGateway,
   ) {}
 
   @Get()
@@ -57,11 +60,50 @@ export class TablesController {
   @Post(':id/start-game')
   async startGame(@Param('id') tableId: string, @Request() req) {
     try {
+      // Check if there's already an active game
+      const existingGame = await this.gameService.getGameByTableId(tableId);
+      if (existingGame && existingGame.state !== 'complete') {
+        // Continue existing game
+        this.gameGateway.emitGameStarted(tableId, existingGame.id);
+        return { success: true, gameId: existingGame.id };
+      }
+      
+      // Create new game
       const game = await this.gameService.createGame(tableId);
+      // Emit gameStarted event to all clients watching this table
+      this.gameGateway.emitGameStarted(tableId, game.id);
       // Don't start dealing yet - wait for players to be ready
       return { success: true, gameId: game.id };
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
     }
+  }
+
+  @Get('preferences')
+  async getPreferences() {
+    return this.tablesService.getPreferences();
+  }
+
+  @Post('preferences')
+  async setPreferences(@Body() body: { tableCount?: number; dealAnimationTime?: number }, @Request() req) {
+    // Check if user is admin
+    if (req.user.userType !== 'admin') {
+      throw new HttpException('Unauthorized: Admin access required', HttpStatus.FORBIDDEN);
+    }
+
+    if (body.tableCount !== undefined) {
+      if (body.tableCount < 3 || body.tableCount > 36) {
+        throw new HttpException('Table count must be between 3 and 36', HttpStatus.BAD_REQUEST);
+      }
+    }
+
+    if (body.dealAnimationTime !== undefined) {
+      if (body.dealAnimationTime < 1000 || body.dealAnimationTime > 42000) {
+        throw new HttpException('Deal animation time must be between 1000 and 42000', HttpStatus.BAD_REQUEST);
+      }
+    }
+
+    await this.tablesService.setPreferences(body);
+    return { success: true };
   }
 }

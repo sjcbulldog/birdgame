@@ -1,5 +1,6 @@
 import { Component, OnInit, signal, inject } from '@angular/core';
 import { Router } from '@angular/router';
+import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../services/auth.service';
 import { TableService } from '../../services/table.service';
 import { SocketService } from '../../services/socket.service';
@@ -8,7 +9,7 @@ import { Table, Position } from '../../models/table.model';
 
 @Component({
   selector: 'app-home',
-  imports: [],
+  imports: [FormsModule],
   templateUrl: './home.component.html',
   styleUrls: ['./home.component.scss']
 })
@@ -21,6 +22,10 @@ export class HomeComponent implements OnInit {
   currentUser: User | null = null;
   tables = signal<Table[]>([]);
   errorMessage = signal<string | null>(null);
+  showMenu = false;
+  showPreferencesDialog = false;
+  tableCount = 3;
+  dealAnimationTime = 10000;
 
   ngOnInit(): void {
     this.authService.currentUser$.subscribe(user => {
@@ -33,6 +38,22 @@ export class HomeComponent implements OnInit {
     // Subscribe to real-time updates
     this.socketService.onTableUpdated().subscribe(tables => {
       this.tables.set(tables);
+    });
+
+    // Subscribe to game started events - navigate only if the user is part of that table
+    this.socketService.onGameStarted().subscribe(data => {
+      // Check if current user is part of the table that started the game
+      const table = this.tables().find(t => t.id === data.tableId);
+      if (table && this.currentUser) {
+        const isPlayerAtTable = Object.values(table.positions).some(
+          player => player?.id === this.currentUser?.id
+        );
+        
+        // Only navigate if the current user is at this table
+        if (isPlayerAtTable) {
+          this.router.navigate(['/game', data.gameId]);
+        }
+      }
     });
   }
 
@@ -93,6 +114,24 @@ export class HomeComponent implements OnInit {
     });
   }
 
+  onCardImageClick(event: MouseEvent, tableId: string): void {
+    // Check if user is at this table
+    const table = this.tables().find(t => t.id === tableId);
+    if (table && this.currentUser && this.isUserAtTable(table)) {
+      // Remove user from table
+      this.tableService.leaveTable(tableId).subscribe({
+        next: () => {
+          // WebSocket will update the view
+        },
+        error: (error) => {
+          console.error('Error leaving table:', error);
+          this.errorMessage.set('Failed to leave table');
+          setTimeout(() => this.errorMessage.set(null), 3000);
+        }
+      });
+    }
+  }
+
   onWatchTable(tableId: string): void {
     this.tableService.watchTable(tableId).subscribe({
       next: () => {
@@ -123,11 +162,8 @@ export class HomeComponent implements OnInit {
   startGame(tableId: string): void {
     this.tableService.startGame(tableId).subscribe({
       next: (response) => {
-        // The gameStarted socket event will handle navigation
-        // But we can also navigate directly with the gameId
-        if (response.gameId) {
-          this.router.navigate(['/game', response.gameId]);
-        }
+        // Don't navigate directly - let the gameStarted socket event handle navigation
+        // This ensures all players at the table are navigated together
       },
       error: (error) => {
         console.error('Error starting game:', error);
@@ -137,8 +173,71 @@ export class HomeComponent implements OnInit {
     });
   }
 
+  hasActiveGame(table: Table): boolean {
+    return !!table.activeGameId && this.isUserAtTable(table);
+  }
+
+  getButtonText(table: Table): string {
+    return this.hasActiveGame(table) ? 'Continue' : 'Start';
+  }
+
   logout(): void {
+    this.showMenu = false;
     this.authService.logout();
     this.router.navigate(['/login']);
+  }
+
+  toggleMenu(): void {
+    this.showMenu = !this.showMenu;
+  }
+
+  openPreferences(): void {
+    this.showMenu = false;
+    this.showPreferencesDialog = true;
+    // Load current preferences
+    this.tableService.getPreferences().subscribe({
+      next: (prefs) => {
+        this.tableCount = prefs.tableCount;
+        this.dealAnimationTime = prefs.dealAnimationTime;
+      },
+      error: (error) => {
+        console.error('Error loading preferences:', error);
+        this.tableCount = this.tables().length;
+        this.dealAnimationTime = 10000;
+      }
+    });
+  }
+
+  cancelPreferences(): void {
+    this.showPreferencesDialog = false;
+  }
+
+  savePreferences(): void {
+    if (this.tableCount < 3 || this.tableCount > 36) {
+      this.errorMessage.set('Table count must be between 3 and 36');
+      setTimeout(() => this.errorMessage.set(null), 3000);
+      return;
+    }
+
+    if (this.dealAnimationTime < 1000 || this.dealAnimationTime > 42000) {
+      this.errorMessage.set('Deal animation time must be between 1000 and 42000 milliseconds');
+      setTimeout(() => this.errorMessage.set(null), 3000);
+      return;
+    }
+
+    this.tableService.setPreferences({
+      tableCount: this.tableCount,
+      dealAnimationTime: this.dealAnimationTime
+    }).subscribe({
+      next: () => {
+        this.showPreferencesDialog = false;
+        // Tables will be updated via WebSocket
+      },
+      error: (error) => {
+        console.error('Error setting preferences:', error);
+        this.errorMessage.set('Failed to update preferences');
+        setTimeout(() => this.errorMessage.set(null), 3000);
+      }
+    });
   }
 }

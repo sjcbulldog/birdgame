@@ -9,6 +9,7 @@ export enum GameState {
   DECLARING_TRUMP = 'declaring_trump',
   PLAYING = 'playing',
   SCORING = 'scoring',
+  SHOWSCORE = 'showscore',
   COMPLETE = 'complete'
 }
 
@@ -65,7 +66,22 @@ export class Game {
   playerReady: Record<PlayerPosition, boolean>;
 
   @Column({ type: 'json', nullable: true })
+  scoringReady: Record<PlayerPosition, boolean>;
+
+  @Column({ type: 'json', nullable: true })
   gameState: any;
+
+  @Column({ type: 'json', nullable: true })
+  lastHandResult: {
+    biddingTeam: 'northSouth' | 'eastWest';
+    bid: number;
+    northSouthPoints: number;
+    eastWestPoints: number;
+    madeBid: boolean;
+  };
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  winningTeam: 'northSouth' | 'eastWest' | null;
 
   @CreateDateColumn()
   createdAt: Date;

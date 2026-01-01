@@ -10,12 +10,13 @@ import {
   VerifyEmailResponse 
 } from '../models/auth.model';
 import { SocketService } from './socket.service';
+import { environment } from '../../environments/environment';
 
 @Injectable({
   providedIn: 'root'
 })
 export class AuthService {
-  private apiUrl = 'http://localhost:3000/auth';
+  private apiUrl = `${environment.apiUrl}/auth`;
   private currentUserSubject = new BehaviorSubject<User | null>(null);
   public currentUser$ = this.currentUserSubject.asObservable();
   private socketService = inject(SocketService);

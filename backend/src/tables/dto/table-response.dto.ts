@@ -1,5 +1,6 @@
 ﻿export class PlayerDto {
   id: string;
+  username: string;
   email: string;
   firstName?: string;
   lastName?: string;
@@ -15,4 +16,6 @@ export class TableResponseDto {
     west?: PlayerDto;
   };
   watcherCount: number;
+  activeGameId?: string;
+  watchers?: PlayerDto[];
 }

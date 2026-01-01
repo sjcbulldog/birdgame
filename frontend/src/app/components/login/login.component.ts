@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef } from '@angular/core';
+import { Component, ChangeDetectorRef, signal } from '@angular/core';
 import { FormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
@@ -15,6 +15,7 @@ export class LoginComponent {
   isLoading = false;
   needsVerification = false;
   userEmail = '';
+  showPassword = signal(false);
 
   constructor(
     private fb: FormBuilder,
@@ -79,6 +80,10 @@ export class LoginComponent {
         }
       }
     });
+  }
+
+  togglePasswordVisibility(): void {
+    this.showPassword.set(!this.showPassword());
   }
 
   resendVerification(): void {

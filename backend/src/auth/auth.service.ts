@@ -72,13 +72,14 @@ export class AuthService {
       throw new UnauthorizedException('This account has been disabled');
     }
 
-    const payload = { email: user.email, sub: user.id };
+    const payload = { email: user.email, sub: user.id, userType: user.userType };
     const accessToken = this.jwtService.sign(payload);
 
     return {
       accessToken,
       user: {
         id: user.id,
+        username: user.username,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,

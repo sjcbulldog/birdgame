@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { Table } from './entities/table.entity';
 import { TableWatcher } from './entities/table-watcher.entity';
+import { SitePreferences } from './entities/site-preferences.entity';
 import { Position } from './types/position.type';
 import { TableResponseDto, PlayerDto } from './dto/table-response.dto';
 import { GameService } from '../game/game.service';
@@ -16,6 +17,8 @@ export class TablesService implements OnModuleInit {
     private tableRepository: Repository<Table>,
     @InjectRepository(TableWatcher)
     private watcherRepository: Repository<TableWatcher>,
+    @InjectRepository(SitePreferences)
+    private preferencesRepository: Repository<SitePreferences>,
     @Inject(forwardRef(() => GameService))
     private gameService: GameService,
   ) {}
@@ -73,9 +76,17 @@ export class TablesService implements OnModuleInit {
     const tableDtos: TableResponseDto[] = [];
 
     for (const table of tables) {
-      const watcherCount = await this.watcherRepository.count({
+      // Get watchers with user information
+      const watchers = await this.watcherRepository.find({
         where: { table: { id: table.id } },
+        relations: ['user'],
       });
+
+      const watcherCount = watchers.length;
+
+      // Check if there's an active game for this table
+      const activeGame = await this.gameService.getGameByTableId(table.id);
+      const activeGameId = activeGame && activeGame.state !== 'complete' ? activeGame.id : undefined;
 
       tableDtos.push({
         id: table.id,
@@ -87,6 +98,8 @@ export class TablesService implements OnModuleInit {
           west: table.westPlayer ? this.mapPlayerDto(table.westPlayer) : undefined,
         },
         watcherCount,
+        activeGameId,
+        watchers: watchers.map(w => this.mapPlayerDto(w.user)),
       });
     }
 
@@ -141,6 +154,9 @@ export class TablesService implements OnModuleInit {
           await queryRunner.manager.save(Table, t);
         }
       }
+
+      // Remove user from watching ALL tables (within transaction)
+      await queryRunner.manager.delete(TableWatcher, { user: { id: userId } });
 
       // Reload the target table with fresh data
       table = await queryRunner.manager.findOne(Table, { where: { id: tableId } });
@@ -211,10 +227,10 @@ export class TablesService implements OnModuleInit {
 
     await this.tableRepository.save(table);
 
-    // Check if there's a game in NEW state for this table
+    // Check if there's a game for this table and delete it if no human players remain
     try {
       const game = await this.gameService.getCurrentGameForTable(tableId);
-      if (game && game.state === 'new') {
+      if (game) {
         // Check if all human players have left
         const hasHumanPlayers = 
           (table.northPlayerId && game.playerTypes.north === 'human') ||
@@ -272,24 +288,71 @@ export class TablesService implements OnModuleInit {
   }
 
   async addWatcher(tableId: string, userId: string): Promise<void> {
-    const existing = await this.watcherRepository.findOne({
+    // Check if user is already watching this specific table
+    const existingWatch = await this.watcherRepository.findOne({
       where: {
         table: { id: tableId },
         user: { id: userId },
       },
     });
 
-    if (!existing) {
-      const watcher = this.watcherRepository.create({
+    // If already watching this table, remove them (toggle off)
+    if (existingWatch) {
+      await this.watcherRepository.delete({
         table: { id: tableId },
         user: { id: userId },
       });
-      await this.watcherRepository.save(watcher);
 
       // Emit update via gateway
       if (this.gateway) {
         this.gateway.emitTableUpdate();
       }
+      return;
+    }
+
+    // Remove user from watching ALL other tables
+    await this.watcherRepository.delete({ user: { id: userId } });
+
+    // Remove user from all table positions (if they are a player)
+    const allTables = await this.tableRepository.find();
+    for (const table of allTables) {
+      let modified = false;
+      if (table.northPlayerId === userId) {
+        table.northPlayerId = null;
+        table.northPlayer = null;
+        modified = true;
+      }
+      if (table.southPlayerId === userId) {
+        table.southPlayerId = null;
+        table.southPlayer = null;
+        modified = true;
+      }
+      if (table.eastPlayerId === userId) {
+        table.eastPlayerId = null;
+        table.eastPlayer = null;
+        modified = true;
+      }
+      if (table.westPlayerId === userId) {
+        table.westPlayerId = null;
+        table.westPlayer = null;
+        modified = true;
+      }
+      
+      if (modified) {
+        await this.tableRepository.save(table);
+      }
+    }
+
+    // Add user as watcher to the specified table
+    const watcher = this.watcherRepository.create({
+      table: { id: tableId },
+      user: { id: userId },
+    });
+    await this.watcherRepository.save(watcher);
+
+    // Emit update via gateway
+    if (this.gateway) {
+      this.gateway.emitTableUpdate();
     }
   }
 
@@ -305,9 +368,112 @@ export class TablesService implements OnModuleInit {
     }
   }
 
+  async setTableCount(targetCount: number): Promise<void> {
+    const currentTables = await this.tableRepository.find({
+      order: { tableNumber: 'ASC' },
+    });
+    const currentCount = currentTables.length;
+
+    if (targetCount < currentCount) {
+      // Remove tables starting from highest table number
+      const tablesToRemove = currentTables.slice(targetCount);
+      
+      for (const table of tablesToRemove) {
+        // Delete any games associated with this table
+        try {
+          const game = await this.gameService.getCurrentGameForTable(table.id);
+          if (game) {
+            await this.gameService.deleteGame(game.id);
+          }
+        } catch (error) {
+          // Game might not exist, continue
+        }
+
+        // Remove watchers
+        await this.watcherRepository.delete({ table: { id: table.id } });
+
+        // Delete the table (players will be removed via cascade or explicitly set to null)
+        await this.tableRepository.delete(table.id);
+      }
+
+      // Emit update via gateway
+      if (this.gateway) {
+        this.gateway.emitTableUpdate();
+      }
+    } else if (targetCount > currentCount) {
+      // Add new tables
+      const tablesToCreate = targetCount - currentCount;
+      
+      for (let i = 0; i < tablesToCreate; i++) {
+        const maxTableNumber = await this.tableRepository
+          .createQueryBuilder('table')
+          .select('MAX(table.tableNumber)', 'max')
+          .getRawOne();
+        
+        const nextNumber = (maxTableNumber?.max || 0) + 1;
+        
+        const newTable = this.tableRepository.create({
+          tableNumber: nextNumber,
+        });
+        await this.tableRepository.save(newTable);
+      }
+
+      // Emit update via gateway
+      if (this.gateway) {
+        this.gateway.emitTableUpdate();
+      }
+    }
+
+    // Ensure at least 3 empty tables after adjustment
+    await this.ensureMinimumEmptyTables(3);
+  }
+
+  async getPreferences(): Promise<SitePreferences> {
+    let preferences = await this.preferencesRepository.findOne({ where: {} });
+    
+    if (!preferences) {
+      // Create default preferences if they don't exist
+      preferences = this.preferencesRepository.create({
+        tableCount: 3,
+        dealAnimationTime: 10000,
+      });
+      await this.preferencesRepository.save(preferences);
+    }
+    
+    return preferences;
+  }
+
+  async setPreferences(updates: { tableCount?: number; dealAnimationTime?: number }): Promise<void> {
+    let preferences = await this.preferencesRepository.findOne({ where: {} });
+    
+    if (!preferences) {
+      preferences = this.preferencesRepository.create({
+        tableCount: 3,
+        dealAnimationTime: 10000,
+      });
+    }
+    
+    if (updates.tableCount !== undefined) {
+      preferences.tableCount = updates.tableCount;
+      await this.setTableCount(updates.tableCount);
+    }
+    
+    if (updates.dealAnimationTime !== undefined) {
+      preferences.dealAnimationTime = updates.dealAnimationTime;
+    }
+    
+    await this.preferencesRepository.save(preferences);
+    
+    // Emit update via gateway if animation time changed
+    if (updates.dealAnimationTime !== undefined && this.gateway) {
+      this.gateway.emitTableUpdate();
+    }
+  }
+
   private mapPlayerDto(user: any): PlayerDto {
     return {
       id: user.id,
+      username: user.username,
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,

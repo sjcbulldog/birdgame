@@ -3,6 +3,7 @@ import { Observable, fromEvent, EMPTY, Subject } from 'rxjs';
 import { io, Socket } from 'socket.io-client';
 import { Table } from '../models/table.model';
 import { Router } from '@angular/router';
+import { environment } from '../../environments/environment';
 
 @Injectable({
   providedIn: 'root',
@@ -24,7 +25,7 @@ export class SocketService implements OnDestroy {
 
     const auth = token ? { token } : {};
     
-    this.socket = io('http://localhost:3000', {
+    this.socket = io(environment.wsUrl, {
       transports: ['websocket'],
       auth,
     });
@@ -42,21 +43,13 @@ export class SocketService implements OnDestroy {
       console.error('Socket error:', error);
     });
 
-    // Listen for game started event
-    this.socket.on('gameStarted', (data: { tableId: string; gameId: string }) => {
-      console.log('Game started event received:', data);
-      this.router.navigate(['/game', data.gameId]);
-    });
-
     // Listen for game state updates
     this.socket.on('gameState', (data: any) => {
-      console.log('Game state event received:', data);
       this.gameStateSubject.next(data);
     });
 
     // Listen for player ready updates
     this.socket.on('playerReadyUpdate', (data: { playerReady: Record<string, boolean>; allReady: boolean }) => {
-      console.log('Player ready update event received:', data);
       this.playerReadyUpdateSubject.next(data);
     });
   }
@@ -103,6 +96,20 @@ export class SocketService implements OnDestroy {
       throw new Error('Socket not connected');
     }
     this.socket.emit('declareTrump', { gameId, player, trumpSuit });
+  }
+
+  startNextHand(gameId: string) {
+    if (!this.socket) {
+      throw new Error('Socket not connected');
+    }
+    this.socket.emit('startNextHand', { gameId });
+  }
+
+  scoringReady(gameId: string, player: string) {
+    if (!this.socket) {
+      throw new Error('Socket not connected');
+    }
+    this.socket.emit('scoringReady', { gameId, player });
   }
 
   playCard(gameId: string, player: string, cardId: string) {
