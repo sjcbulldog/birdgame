@@ -153,21 +153,20 @@
   @if (showWinnerPopup && winningTeam) {
     <div class="winner-popup-overlay" (click)="closeWinnerPopup()">
       <div class="winner-popup" (click)="$event.stopPropagation()">
-        <h2>🎉 Game Over! 🎉</h2>
-        
-        <div class="winner-announcement">
-          <h3>{{ getWinnerTeamName() }}</h3>
-          <p class="winner-text">wins the game!</p>
-        </div>
+        @if (didPlayerWin()) {
+          <h2>🎉 You Win! 🎉</h2>
+        } @else {
+          <h2>😔 You Lose</h2>
+        }
         
         <div class="final-scores">
-          <div class="score-row winner">
-            <span class="team-name">{{ getWinnerTeamName() }}</span>
-            <span class="score">{{ getWinnerScore() }} points</span>
+          <div class="score-row" [class.winner]="winningTeam === 'northSouth'">
+            <span class="team-name">{{ getTeamNames('northSouth') }}</span>
+            <span class="score">{{ game!.northSouthScore }} points</span>
           </div>
-          <div class="score-row">
-            <span class="team-name">{{ getLoserTeamName() }}</span>
-            <span class="score">{{ getLoserScore() }} points</span>
+          <div class="score-row" [class.winner]="winningTeam === 'eastWest'">
+            <span class="team-name">{{ getTeamNames('eastWest') }}</span>
+            <span class="score">{{ game!.eastWestScore }} points</span>
           </div>
         </div>
         

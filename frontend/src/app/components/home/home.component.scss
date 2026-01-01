@@ -294,6 +294,42 @@
         font-weight: bold;
         color: #333;
       }
+
+      .watcher-tooltip {
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        margin-bottom: 8px;
+        background: rgba(0, 0, 0, 0.9);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        z-index: 1000;
+
+        .watcher-name {
+          font-size: 13px;
+          line-height: 1.6;
+          padding: 2px 0;
+        }
+
+        &::after {
+          content: '';
+          position: absolute;
+          top: 100%;
+          left: 20px;
+          border: 6px solid transparent;
+          border-top-color: rgba(0, 0, 0, 0.9);
+        }
+      }
+
+      &:hover .watcher-tooltip {
+        opacity: 1;
+      }
     }
 
     .start-button {

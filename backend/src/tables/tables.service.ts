@@ -76,9 +76,17 @@ export class TablesService implements OnModuleInit {
     const tableDtos: TableResponseDto[] = [];
 
     for (const table of tables) {
-      const watcherCount = await this.watcherRepository.count({
+      // Get watchers with user information
+      const watchers = await this.watcherRepository.find({
         where: { table: { id: table.id } },
+        relations: ['user'],
       });
+
+      const watcherCount = watchers.length;
+
+      // Check if there's an active game for this table
+      const activeGame = await this.gameService.getGameByTableId(table.id);
+      const activeGameId = activeGame && activeGame.state !== 'complete' ? activeGame.id : undefined;
 
       tableDtos.push({
         id: table.id,
@@ -90,6 +98,8 @@ export class TablesService implements OnModuleInit {
           west: table.westPlayer ? this.mapPlayerDto(table.westPlayer) : undefined,
         },
         watcherCount,
+        activeGameId,
+        watchers: watchers.map(w => this.mapPlayerDto(w.user)),
       });
     }
 
@@ -144,6 +154,9 @@ export class TablesService implements OnModuleInit {
           await queryRunner.manager.save(Table, t);
         }
       }
+
+      // Remove user from watching ALL tables (within transaction)
+      await queryRunner.manager.delete(TableWatcher, { user: { id: userId } });
 
       // Reload the target table with fresh data
       table = await queryRunner.manager.findOne(Table, { where: { id: tableId } });
@@ -214,10 +227,10 @@ export class TablesService implements OnModuleInit {
 
     await this.tableRepository.save(table);
 
-    // Check if there's a game in NEW state for this table
+    // Check if there's a game for this table and delete it if no human players remain
     try {
       const game = await this.gameService.getCurrentGameForTable(tableId);
-      if (game && game.state === 'new') {
+      if (game) {
         // Check if all human players have left
         const hasHumanPlayers = 
           (table.northPlayerId && game.playerTypes.north === 'human') ||
@@ -275,24 +288,71 @@ export class TablesService implements OnModuleInit {
   }
 
   async addWatcher(tableId: string, userId: string): Promise<void> {
-    const existing = await this.watcherRepository.findOne({
+    // Check if user is already watching this specific table
+    const existingWatch = await this.watcherRepository.findOne({
       where: {
         table: { id: tableId },
         user: { id: userId },
       },
     });
 
-    if (!existing) {
-      const watcher = this.watcherRepository.create({
+    // If already watching this table, remove them (toggle off)
+    if (existingWatch) {
+      await this.watcherRepository.delete({
         table: { id: tableId },
         user: { id: userId },
       });
-      await this.watcherRepository.save(watcher);
 
       // Emit update via gateway
       if (this.gateway) {
         this.gateway.emitTableUpdate();
       }
+      return;
+    }
+
+    // Remove user from watching ALL other tables
+    await this.watcherRepository.delete({ user: { id: userId } });
+
+    // Remove user from all table positions (if they are a player)
+    const allTables = await this.tableRepository.find();
+    for (const table of allTables) {
+      let modified = false;
+      if (table.northPlayerId === userId) {
+        table.northPlayerId = null;
+        table.northPlayer = null;
+        modified = true;
+      }
+      if (table.southPlayerId === userId) {
+        table.southPlayerId = null;
+        table.southPlayer = null;
+        modified = true;
+      }
+      if (table.eastPlayerId === userId) {
+        table.eastPlayerId = null;
+        table.eastPlayer = null;
+        modified = true;
+      }
+      if (table.westPlayerId === userId) {
+        table.westPlayerId = null;
+        table.westPlayer = null;
+        modified = true;
+      }
+      
+      if (modified) {
+        await this.tableRepository.save(table);
+      }
+    }
+
+    // Add user as watcher to the specified table
+    const watcher = this.watcherRepository.create({
+      table: { id: tableId },
+      user: { id: userId },
+    });
+    await this.watcherRepository.save(watcher);
+
+    // Emit update via gateway
+    if (this.gateway) {
+      this.gateway.emitTableUpdate();
     }
   }
 

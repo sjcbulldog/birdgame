@@ -42,7 +42,6 @@ export class HomeComponent implements OnInit {
 
     // Subscribe to game started events - navigate all players when game starts
     this.socketService.onGameStarted().subscribe(data => {
-      console.log('Game started event received in home component:', data);
       this.router.navigate(['/game', data.gameId]);
     });
   }
@@ -154,7 +153,6 @@ export class HomeComponent implements OnInit {
       next: (response) => {
         // Don't navigate directly - let the gameStarted socket event handle navigation
         // This ensures all players at the table are navigated together
-        console.log('Game start request sent, waiting for gameStarted event...');
       },
       error: (error) => {
         console.error('Error starting game:', error);
@@ -162,6 +160,14 @@ export class HomeComponent implements OnInit {
         setTimeout(() => this.errorMessage.set(null), 3000);
       }
     });
+  }
+
+  hasActiveGame(table: Table): boolean {
+    return !!table.activeGameId && this.isUserAtTable(table);
+  }
+
+  getButtonText(table: Table): string {
+    return this.hasActiveGame(table) ? 'Continue' : 'Start';
   }
 
   logout(): void {

@@ -16,4 +16,6 @@ export class TableResponseDto {
     west?: PlayerDto;
   };
   watcherCount: number;
+  activeGameId?: string;
+  watchers?: PlayerDto[];
 }

@@ -88,24 +88,33 @@ export class AIPlayer {
    * Decide on a bid based on hand strength
    */
   placeBid(currentBid: number | null, biddingHistory: Array<{ player: PlayerPosition; bid: number | 'pass' | 'check' }>): number | 'pass' | 'check' {
-    // Count high value cards and trump potential
-    const handStrength = this.evaluateHandStrength();
-    
-    // Simple strategy for now
-    if (currentBid === null) {
-      // First bid - can pass or bid
-      if (handStrength >= 40) {
-        return 60;
+    let bid : number | 'pass' | 'check' = 'pass' ;
+
+    const maxBid = this.findMaxBid();
+    if (maxBid < 60) {
+      if (currentBid === null) {
+        bid = 60 ;
       }
-      return 'pass';
+      else if (typeof currentBid === 'number' && currentBid < 80) {
+        bid = 80 ;
+      }
+      else {
+        bid = 'pass' ;
+      }
+    }
+    else {
+      if (currentBid === null) {
+        bid = maxBid ;
+      }
+      else {
+        console.log('currentBid', currentBid, 'maxBid', maxBid, biddingHistory);
+        if (typeof currentBid === 'number' && currentBid + 5 <= maxBid) {
+          bid = currentBid + 5 ;
+        }
+      }
     }
 
-    // Someone has bid
-    if (handStrength >= currentBid + 10) {
-      return currentBid + 5;
-    }
-
-    return 'pass';
+    return bid;
   }
 
   /**
@@ -188,34 +197,59 @@ export class AIPlayer {
     }
   }
 
+  private longestSuitInHand(cards: Card[]): Card[] {
+    const suitMap: Record<Suit, Card[]> = {
+      red: [],
+      black: [],
+      green: [],
+      yellow: [],
+    };
+    for (const card of cards) {
+      if (card.color === 'bird') {
+        continue;
+      }
+
+      if (card.color === 'red' && card.value === 1) {
+        continue;
+      }
+
+      if (card.color in suitMap) {
+        suitMap[card.color as Suit].push(card);
+      }
+    }
+    let longestSuit: Suit = 'red';
+    for (const suit of Object.keys(suitMap) as Suit[]) {
+      if (suitMap[suit].length > suitMap[longestSuit].length) {
+        longestSuit = suit;
+      }
+    }
+    return suitMap[longestSuit];
+  }
+
   /**
    * Evaluate hand strength for bidding
    */
-  private evaluateHandStrength(): number {
-    let strength = 0;
+  private findMaxBid(): number {
+    let maxbid = 150 ;
+    let c: Card ;
 
-    for (const card of this.hand) {
-      // Point cards
-      if (card.value === 5) strength += 5;
-      else if (card.value === 10) strength += 10;
-      else if (card.value === 14) strength += 10;
-      else if (card.color === 'bird') strength += 20;
-      else if (card.color === 'red' && card.value === 1) strength += 30;
-      
-      // High cards add to strength
-      if (card.value >= 12) strength += 5;
+    let cards = [...this.hand, this.centerPileTopCard] ;
+    c = cards.find(c => c?.color === 'red' && c?.value === 1) ;
+    if (c === undefined) {
+      maxbid -= 40 ;
     }
 
-    // Consider centerPile top card
-    if (this.centerPileTopCard) {
-      if (this.centerPileTopCard.value === 5) strength += 2;
-      else if (this.centerPileTopCard.value === 10) strength += 5;
-      else if (this.centerPileTopCard.value === 14) strength += 5;
-      else if (this.centerPileTopCard.color === 'bird') strength += 10;
-      else if (this.centerPileTopCard.color === 'red' && this.centerPileTopCard.value === 1) strength += 15;
+    c = cards.find(c => c?.color === 'bird') ;
+    if (c === undefined) {
+      maxbid -= 30 ;
     }
 
-    return strength;
+    let suit = this.longestSuitInHand(cards as Card[]) ;
+    maxbid -= (9 - suit.length) * 10 ;
+
+    console.log('AIPlayer.findMaxBid', cards, '=>', maxbid) ;
+
+    return maxbid ;
   }
 
   /**

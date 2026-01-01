@@ -50,7 +50,6 @@ export class SocketService implements OnDestroy {
 
     // Listen for player ready updates
     this.socket.on('playerReadyUpdate', (data: { playerReady: Record<string, boolean>; allReady: boolean }) => {
-      console.log('Player ready update event received:', data);
       this.playerReadyUpdateSubject.next(data);
     });
   }

@@ -37,10 +37,10 @@
       @for (table of tables(); track table.id) {
         <div class="card">
           <div class="card-image" (click)="onCardImageClick($event, table.id)">
-            <!-- Start Button -->
+            <!-- Start/Continue Button -->
             @if (hasPlayers(table) && isUserAtTable(table)) {
-              <button class="start-button" (click)="startGame(table.id); $event.stopPropagation()" title="Start game">
-                Start
+              <button class="start-button" (click)="startGame(table.id); $event.stopPropagation()" [title]="getButtonText(table) + ' game'">
+                {{ getButtonText(table) }}
               </button>
             }
             
@@ -108,6 +108,13 @@
               <div class="watcher-badge" (click)="onWatchTable(table.id); $event.stopPropagation()">
                 <img src="/api/images/user.png" alt="Watchers" class="watcher-icon" />
                 <span class="watcher-count">{{ table.watcherCount }}</span>
+                @if (table.watchers && table.watchers.length > 0) {
+                  <div class="watcher-tooltip">
+                    @for (watcher of table.watchers; track watcher.id) {
+                      <div class="watcher-name">{{ watcher.username }}</div>
+                    }
+                  </div>
+                }
               </div>
             } @else {
               <div class="watcher-badge clickable" (click)="onWatchTable(table.id); $event.stopPropagation()" title="Watch this table">

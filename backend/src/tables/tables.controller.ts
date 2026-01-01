@@ -60,6 +60,15 @@ export class TablesController {
   @Post(':id/start-game')
   async startGame(@Param('id') tableId: string, @Request() req) {
     try {
+      // Check if there's already an active game
+      const existingGame = await this.gameService.getGameByTableId(tableId);
+      if (existingGame && existingGame.state !== 'complete') {
+        // Continue existing game
+        this.gameGateway.emitGameStarted(tableId, existingGame.id);
+        return { success: true, gameId: existingGame.id };
+      }
+      
+      // Create new game
       const game = await this.gameService.createGame(tableId);
       // Emit gameStarted event to all clients watching this table
       this.gameGateway.emitGameStarted(tableId, game.id);

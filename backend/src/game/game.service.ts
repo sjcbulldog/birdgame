@@ -234,8 +234,21 @@ export class GameService implements OnModuleInit {
         throw new NotFoundException(`Game with ID ${gameId} not found`);
       }
 
-      if (game.state !== GameState.NEW) {
-        throw new BadRequestException('Game must be in NEW state to start dealing');
+      if (game.state !== GameState.NEW && game.state !== GameState.SHOWSCORE) {
+        throw new BadRequestException('Game must be in NEW or SHOWSCORE state to start dealing');
+      }
+
+      // If starting a new hand from SHOWSCORE, reset hand-specific fields
+      if (game.state === GameState.SHOWSCORE) {
+        game.highBid = null;
+        game.highBidder = null;
+        game.currentBidder = null;
+        game.trumpSuit = null;
+        game.lastHandResult = null;
+        game.scoringReady = { north: false, east: false, south: false, west: false };
+        
+        // Rotate dealer to next player
+        game.dealer = this.getNextPlayer(game.dealer);
       }
 
       game.state = GameState.DEALING;
@@ -584,6 +597,16 @@ export class GameService implements OnModuleInit {
 
       // Check if trick is complete
       if (currentTrick.cards.length === 4) {
+        // First, save and emit with all 4 cards visible in currentTrick
+        const gameWith4Cards = await queryRunner.manager.save(game);
+        
+        if (this.gateway) {
+          this.gateway.emitGameUpdate(gameWith4Cards.id);
+        }
+        
+        // Small delay to ensure frontend receives the update
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
         const winner = this.determineTrickWinner(currentTrick, game.trumpSuit);
         const points = this.calculateTrickPoints(currentTrick.cards);
 
@@ -739,6 +762,7 @@ export class GameService implements OnModuleInit {
       // Check for winner
       if (game.northSouthScore >= 500 || game.eastWestScore >= 500) {
         game.state = GameState.COMPLETE;
+        game.winningTeam = game.northSouthScore >= game.eastWestScore ? 'northSouth' : 'eastWest';
         // Cleanup AI players for completed game
         this.cleanupAIPlayers(gameId);
       } else {
