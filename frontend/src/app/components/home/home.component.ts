@@ -104,6 +104,24 @@ export class HomeComponent implements OnInit {
     });
   }
 
+  onCardImageClick(event: MouseEvent, tableId: string): void {
+    // Check if user is at this table
+    const table = this.tables().find(t => t.id === tableId);
+    if (table && this.currentUser && this.isUserAtTable(table)) {
+      // Remove user from table
+      this.tableService.leaveTable(tableId).subscribe({
+        next: () => {
+          // WebSocket will update the view
+        },
+        error: (error) => {
+          console.error('Error leaving table:', error);
+          this.errorMessage.set('Failed to leave table');
+          setTimeout(() => this.errorMessage.set(null), 3000);
+        }
+      });
+    }
+  }
+
   onWatchTable(tableId: string): void {
     this.tableService.watchTable(tableId).subscribe({
       next: () => {

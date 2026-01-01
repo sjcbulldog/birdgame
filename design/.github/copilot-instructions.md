@@ -54,7 +54,7 @@ Player Action → Frontend → WebSocket/REST → Backend Service → Database
 **Key Relationships**:
 - Table → Users (4 ManyToOne relations for positions)
 - Game → Table (ManyToOne)
-- Game stores full game state as JSON including hands, kitty, tricks, bidding history
+- Game stores full game state as JSON including hands, centerPile, tricks, bidding history
 
 ## Game State Machine
 

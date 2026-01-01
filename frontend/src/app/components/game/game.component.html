@@ -114,3 +114,37 @@
       </div>
     </div>
   }
+  <!-- Trump Declaration UI -->
+  @if (canDeclareTrump()) {
+    <div class="trump-panel">
+      <h3>Declare Trump Suit</h3>
+      <p class="trump-info">You won the bid with <strong>{{ game?.highBid }}</strong>. Choose your trump suit:</p>
+      
+      <div class="trump-buttons">
+        <button 
+          class="btn-trump btn-trump-red" 
+          (click)="declareTrump('red')">
+          <span class="trump-color-swatch" style="background-color: #dc143c;"></span>
+          Red
+        </button>
+        <button 
+          class="btn-trump btn-trump-black" 
+          (click)="declareTrump('black')">
+          <span class="trump-color-swatch" style="background-color: #000000;"></span>
+          Black
+        </button>
+        <button 
+          class="btn-trump btn-trump-green" 
+          (click)="declareTrump('green')">
+          <span class="trump-color-swatch" style="background-color: #228b22;"></span>
+          Green
+        </button>
+        <button 
+          class="btn-trump btn-trump-yellow" 
+          (click)="declareTrump('yellow')">
+          <span class="trump-color-swatch" style="background-color: #ffd700;"></span>
+          Yellow
+        </button>
+      </div>
+    </div>
+  }

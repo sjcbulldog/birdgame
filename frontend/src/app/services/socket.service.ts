@@ -45,7 +45,6 @@ export class SocketService implements OnDestroy {
 
     // Listen for game state updates
     this.socket.on('gameState', (data: any) => {
-      console.log('Game state event received:', data);
       this.gameStateSubject.next(data);
     });
 

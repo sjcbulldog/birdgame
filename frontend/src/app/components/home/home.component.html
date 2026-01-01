@@ -36,10 +36,10 @@
     <div class="cards-grid">
       @for (table of tables(); track table.id) {
         <div class="card">
-          <div class="card-image">
+          <div class="card-image" (click)="onCardImageClick($event, table.id)">
             <!-- Start Button -->
             @if (hasPlayers(table) && isUserAtTable(table)) {
-              <button class="start-button" (click)="startGame(table.id)" title="Start game">
+              <button class="start-button" (click)="startGame(table.id); $event.stopPropagation()" title="Start game">
                 Start
               </button>
             }
@@ -49,7 +49,7 @@
                  [class.empty]="!table.positions.north"
                  [class.occupied]="!!table.positions.north"
                  [title]="table.positions.north?.username || ''"
-                 (click)="onPositionClick(table.id, 'north', !!table.positions.north)">
+                 (click)="onPositionClick(table.id, 'north', !!table.positions.north); $event.stopPropagation()">
               @if (table.positions.north) {
                 <img src="/api/images/user.png" alt="North player" />
                 <span class="player-name player-name-left">{{ table.positions.north.username }}</span>
@@ -63,7 +63,7 @@
                  [class.empty]="!table.positions.south"
                  [class.occupied]="!!table.positions.south"
                  [title]="table.positions.south?.username || ''"
-                 (click)="onPositionClick(table.id, 'south', !!table.positions.south)">
+                 (click)="onPositionClick(table.id, 'south', !!table.positions.south); $event.stopPropagation()">
               @if (table.positions.south) {
                 <img src="/api/images/user.png" alt="South player" />
                 <span class="player-name player-name-right">{{ table.positions.south.username }}</span>
@@ -77,7 +77,7 @@
                  [class.empty]="!table.positions.east"
                  [class.occupied]="!!table.positions.east"
                  [title]="table.positions.east?.username || ''"
-                 (click)="onPositionClick(table.id, 'east', !!table.positions.east)">
+                 (click)="onPositionClick(table.id, 'east', !!table.positions.east); $event.stopPropagation()">
               @if (table.positions.east) {
                 <img src="/api/images/user.png" alt="East player" />
                 <span class="player-name player-name-below">{{ table.positions.east.username }}</span>
@@ -91,7 +91,7 @@
                  [class.empty]="!table.positions.west"
                  [class.occupied]="!!table.positions.west"
                  [title]="table.positions.west?.username || ''"
-                 (click)="onPositionClick(table.id, 'west', !!table.positions.west)">
+                 (click)="onPositionClick(table.id, 'west', !!table.positions.west); $event.stopPropagation()">
               @if (table.positions.west) {
                 <img src="/api/images/user.png" alt="West player" />
                 <span class="player-name player-name-below">{{ table.positions.west.username }}</span>
@@ -105,12 +105,12 @@
 
             <!-- Watcher Badge -->
             @if (table.watcherCount > 0) {
-              <div class="watcher-badge" (click)="onWatchTable(table.id)">
+              <div class="watcher-badge" (click)="onWatchTable(table.id); $event.stopPropagation()">
                 <img src="/api/images/user.png" alt="Watchers" class="watcher-icon" />
                 <span class="watcher-count">{{ table.watcherCount }}</span>
               </div>
             } @else {
-              <div class="watcher-badge clickable" (click)="onWatchTable(table.id)" title="Watch this table">
+              <div class="watcher-badge clickable" (click)="onWatchTable(table.id); $event.stopPropagation()" title="Watch this table">
                 <img src="/api/images/user.png" alt="Watch" class="watcher-icon" />
                 <span class="watcher-count">+</span>
               </div>

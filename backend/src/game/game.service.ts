@@ -13,7 +13,7 @@ interface Card {
 
 interface GameStateData {
   hands: Record<PlayerPosition, Card[]>;
-  kitty: {
+  centerPile: {
     faceDown: Card[];
     faceUp: Card | null;
   };
@@ -338,13 +338,13 @@ export class GameService implements OnModuleInit {
         // Bidding complete - transition to selecting
         game.state = GameState.SELECTING;
 
-        // Give kitty cards to high bidder
-        const kittyCards = [...game.gameState.kitty.faceDown];
-        if (game.gameState.kitty.faceUp) {
-          kittyCards.push(game.gameState.kitty.faceUp);
+        // Give centerPile cards to high bidder
+        const centerPileCards = [...game.gameState.centerPile.faceDown];
+        if (game.gameState.centerPile.faceUp) {
+          centerPileCards.push(game.gameState.centerPile.faceUp);
         }
-        game.gameState.hands[game.highBidder].push(...kittyCards);
-        game.gameState.kitty = { faceDown: [], faceUp: null };
+        game.gameState.hands[game.highBidder].push(...centerPileCards);
+        game.gameState.centerPile = { faceDown: [], faceUp: null };
 
         const savedGame = await queryRunner.manager.save(game);
         await queryRunner.commitTransaction();
@@ -533,6 +533,9 @@ export class GameService implements OnModuleInit {
         throw new BadRequestException('Card not in hand');
       }
 
+      // Validate card can be played according to rules
+      this.validateCardPlay(card, hand, currentTrick, game.trumpSuit);
+
       // Remove card from hand
       game.gameState.hands[player] = hand.filter(c => c.id !== cardId);
 
@@ -674,7 +677,7 @@ export class GameService implements OnModuleInit {
         south: [],
         west: [],
       },
-      kitty: {
+      centerPile: {
         faceDown: [],
         faceUp: null,
       },
@@ -724,12 +727,12 @@ export class GameService implements OnModuleInit {
     const startPlayer = this.getNextPlayer(dealer);
     const dealOrder = this.getDealOrder(startPlayer);
 
-    // First 5 rounds: each player gets 1, kitty gets 1 face down
+    // First 5 rounds: each player gets 1, centerPile gets 1 face down
     for (let round = 0; round < 5; round++) {
       for (const player of dealOrder) {
         gameState.hands[player].push(deck[cardIndex++]);
       }
-      gameState.kitty.faceDown.push(deck[cardIndex++]);
+      gameState.centerPile.faceDown.push(deck[cardIndex++]);
     }
 
     // Next 4 rounds: each player gets 1
@@ -739,8 +742,8 @@ export class GameService implements OnModuleInit {
       }
     }
 
-    // Last card to kitty face up
-    gameState.kitty.faceUp = deck[cardIndex++];
+    // Last card to centerPile face up
+    gameState.centerPile.faceUp = deck[cardIndex++];
 
     return gameState;
   }
@@ -780,9 +783,91 @@ export class GameService implements OnModuleInit {
   }
 
   private determineTrickWinner(trick: GameStateData['currentTrick'], trumpSuit: Suit): PlayerPosition {
-    // TODO: Implement trick winner logic based on game rules
-    // For now, return first player as placeholder
-    return trick.cards[0].player;
+    if (trick.cards.length === 0) {
+      throw new Error('Cannot determine winner of empty trick');
+    }
+
+    const leadSuit = trick.leadSuit;
+    let winningPlayer = trick.cards[0].player;
+    let winningCard = trick.cards[0].card;
+
+    for (let i = 1; i < trick.cards.length; i++) {
+      const { player, card } = trick.cards[i];
+      
+      // Check if this card beats the current winning card
+      if (this.cardBeatsCard(card, winningCard, trumpSuit, leadSuit)) {
+        winningPlayer = player;
+        winningCard = card;
+      }
+    }
+
+    return winningPlayer;
+  }
+
+  private cardBeatsCard(card: Card, winningCard: Card, trumpSuit: Suit, leadSuit: Suit | null): boolean {
+    const cardIsTrump = card.color === trumpSuit || card.color === 'bird' || (card.color === 'red' && card.value === 1);
+    const winningIsTrump = winningCard.color === trumpSuit || winningCard.color === 'bird' || (winningCard.color === 'red' && winningCard.value === 1);
+
+    // If card is trump and winning card is not, card wins
+    if (cardIsTrump && !winningIsTrump) {
+      return true;
+    }
+
+    // If winning card is trump and card is not, card loses
+    if (!cardIsTrump && winningIsTrump) {
+      return false;
+    }
+
+    // Both are trump - compare trump hierarchy
+    if (cardIsTrump && winningIsTrump) {
+      return this.compareTrumpCards(card, winningCard);
+    }
+
+    // Neither is trump - both must follow lead suit (or both are off-suit)
+    // Only cards of lead suit can win
+    const cardFollowsLead = card.color === leadSuit;
+    const winningFollowsLead = winningCard.color === leadSuit;
+
+    // If card follows lead but winning doesn't, card wins
+    if (cardFollowsLead && !winningFollowsLead) {
+      return true;
+    }
+
+    // If winning follows lead but card doesn't, card loses
+    if (!cardFollowsLead && winningFollowsLead) {
+      return false;
+    }
+
+    // Both follow lead suit (or neither does) - compare values
+    if (cardFollowsLead && winningFollowsLead) {
+      return card.value > winningCard.value;
+    }
+
+    // Neither follows lead suit - first card played wins (no change)
+    return false;
+  }
+
+  private compareTrumpCards(card: Card, winningCard: Card): boolean {
+    // Trump hierarchy: red 1 (highest) > bird > regular trump cards by value
+    
+    // Red 1 beats everything
+    if (card.color === 'red' && card.value === 1) {
+      return true;
+    }
+    if (winningCard.color === 'red' && winningCard.value === 1) {
+      return false;
+    }
+
+    // Bird beats regular trump cards but loses to red 1
+    if (card.color === 'bird') {
+      return winningCard.color !== 'red' || winningCard.value !== 1;
+    }
+    if (winningCard.color === 'bird') {
+      return false;
+    }
+
+    // Both are regular trump cards - compare by value
+    return card.value > winningCard.value;
   }
 
   private calculateTrickPoints(cards: Array<{ player: PlayerPosition; card: Card }>): number {
@@ -795,6 +880,48 @@ export class GameService implements OnModuleInit {
       else if (card.color === 'red' && card.value === 1) points += 30;
     }
     return points;
+  }
+
+  private validateCardPlay(
+    card: Card, 
+    hand: Card[], 
+    currentTrick: GameStateData['currentTrick'], 
+    trumpSuit: Suit | null
+  ): void {
+    // If leading, any card is valid
+    if (currentTrick.cards.length === 0) {
+      return;
+    }
+
+    const leadCard = currentTrick.cards[0].card;
+    const leadSuit = currentTrick.leadSuit;
+
+    // Special case: If red 1 or bird is led, must follow with trump suit if you have it
+    if (((leadCard.color === 'red' && leadCard.value === 1) || leadCard.color === 'bird') && trumpSuit) {
+      const hasTrumpCards = hand.some(c => 
+        c.color === trumpSuit || 
+        c.color === 'bird' || 
+        (c.color === 'red' && c.value === 1)
+      );
+      
+      if (hasTrumpCards) {
+        const isValidTrump = card.color === trumpSuit || 
+                             card.color === 'bird' || 
+                             (card.color === 'red' && card.value === 1);
+        if (!isValidTrump) {
+          throw new BadRequestException('Must follow with trump when red 1 or bird is led');
+        }
+      }
+      return;
+    }
+
+    // Normal suit following rules
+    if (leadSuit) {
+      const hasLeadSuit = hand.some(c => c.color === leadSuit);
+      if (hasLeadSuit && card.color !== leadSuit) {
+        throw new BadRequestException(`Must follow suit (${leadSuit})`);
+      }
+    }
   }
 
   // Computer player methods using AIPlayer
@@ -818,12 +945,12 @@ export class GameService implements OnModuleInit {
       if (game.state !== GameState.SELECTING || !game.highBidder) return;
 
       const aiPlayer = this.getAIPlayer(gameId, game.highBidder);
-      const kittyCards = [...game.gameState.kitty.faceDown];
-      if (game.gameState.kitty.faceUp) {
-        kittyCards.push(game.gameState.kitty.faceUp);
+      const centerPileCards = [...game.gameState.centerPile.faceDown];
+      if (game.gameState.centerPile.faceUp) {
+        centerPileCards.push(game.gameState.centerPile.faceUp);
       }
       
-      const selectedCardIds = aiPlayer.selectCards(kittyCards);
+      const selectedCardIds = aiPlayer.selectCards(centerPileCards);
       await this.selectNineCards(gameId, game.highBidder, selectedCardIds);
     } catch (error) {
       console.error('Computer select error:', error);
@@ -896,8 +1023,8 @@ export class GameService implements OnModuleInit {
         // Update hand
         aiPlayer.updateHand(game.gameState.hands[position]);
         
-        // Update kitty top card (visible to all)
-        aiPlayer.setKittyTopCard(game.gameState.kitty.faceUp);
+        // Update centerPile top card (visible to all)
+        aiPlayer.setCenterPileTopCard(game.gameState.centerPile.faceUp);
         
         // Update completed tricks
         aiPlayer.updateCompletedTricks(game.gameState.completedTricks);

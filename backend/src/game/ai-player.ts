@@ -21,7 +21,7 @@ export interface CurrentTrick {
 export class AIPlayer {
   private position: PlayerPosition;
   private hand: Card[];
-  private kittyTopCard: Card | null;
+  private centerPileTopCard: Card | null;
   private discardedCards: Card[];
   private completedTricks: CompletedTrick[];
   private trumpSuit: Suit | null;
@@ -29,7 +29,7 @@ export class AIPlayer {
   constructor(position: PlayerPosition) {
     this.position = position;
     this.hand = [];
-    this.kittyTopCard = null;
+    this.centerPileTopCard = null;
     this.discardedCards = [];
     this.completedTricks = [];
     this.trumpSuit = null;
@@ -43,10 +43,10 @@ export class AIPlayer {
   }
 
   /**
-   * Set the top card of the kitty (visible to all players)
+   * Set the top card of the centerPile (visible to all players)
    */
-  setKittyTopCard(card: Card | null): void {
-    this.kittyTopCard = card;
+  setCenterPileTopCard(card: Card | null): void {
+    this.centerPileTopCard = card;
   }
 
   /**
@@ -109,11 +109,11 @@ export class AIPlayer {
   }
 
   /**
-   * Select which 9 cards to keep from 15 (9 in hand + 6 in kitty)
+   * Select which 9 cards to keep from 15 (9 in hand + 6 in centerPile)
    */
-  selectCards(kittyCards: Card[]): string[] {
-    // Combine hand with kitty
-    const allCards = [...this.hand, ...kittyCards];
+  selectCards(centerPileCards: Card[]): string[] {
+    // Combine hand with centerPile
+    const allCards = [...this.hand, ...centerPileCards];
     
     // Sort by value (keep high value cards)
     const sorted = allCards.sort((a, b) => {
@@ -206,13 +206,13 @@ export class AIPlayer {
       if (card.value >= 12) strength += 5;
     }
 
-    // Consider kitty top card
-    if (this.kittyTopCard) {
-      if (this.kittyTopCard.value === 5) strength += 2;
-      else if (this.kittyTopCard.value === 10) strength += 5;
-      else if (this.kittyTopCard.value === 14) strength += 5;
-      else if (this.kittyTopCard.color === 'bird') strength += 10;
-      else if (this.kittyTopCard.color === 'red' && this.kittyTopCard.value === 1) strength += 15;
+    // Consider centerPile top card
+    if (this.centerPileTopCard) {
+      if (this.centerPileTopCard.value === 5) strength += 2;
+      else if (this.centerPileTopCard.value === 10) strength += 5;
+      else if (this.centerPileTopCard.value === 14) strength += 5;
+      else if (this.centerPileTopCard.color === 'bird') strength += 10;
+      else if (this.centerPileTopCard.color === 'red' && this.centerPileTopCard.value === 1) strength += 15;
     }
 
     return strength;
@@ -227,7 +227,20 @@ export class AIPlayer {
       return [...this.hand];
     }
 
+    const leadCard = currentTrick.cards[0].card;
     const leadSuit = currentTrick.leadSuit;
+    
+    // Special case: If red 1 or bird is led, must follow with trump suit if you have it
+    if (((leadCard.color === 'red' && leadCard.value === 1) || leadCard.color === 'bird') && this.trumpSuit) {
+      const trumpCards = this.hand.filter(c => 
+        c.color === this.trumpSuit || 
+        c.color === 'bird' || 
+        (c.color === 'red' && c.value === 1)
+      );
+      if (trumpCards.length > 0) {
+        return trumpCards;
+      }
+    }
     
     // Must follow suit if possible
     if (leadSuit) {
@@ -247,7 +260,7 @@ export class AIPlayer {
   getKnowledge(): {
     position: PlayerPosition;
     handSize: number;
-    kittyTopCard: Card | null;
+    centerPileTopCard: Card | null;
     discardedCardsCount: number;
     completedTricksCount: number;
     trumpSuit: Suit | null;
@@ -255,7 +268,7 @@ export class AIPlayer {
     return {
       position: this.position,
       handSize: this.hand.length,
-      kittyTopCard: this.kittyTopCard,
+      centerPileTopCard: this.centerPileTopCard,
       discardedCardsCount: this.discardedCards.length,
       completedTricksCount: this.completedTricks.length,
       trumpSuit: this.trumpSuit,

@@ -28,4 +28,4 @@ The bird card is worth 20 points.
 The red one is worth 30 points.
 A team gets the points from each trick they win.
 The points are totaled at the end of each hand.
-If the team that took the kitty does not reach their bid, they go backward their bid amount.
+If the team that took the centerPile does not reach their bid, they go backward their bid amount.
