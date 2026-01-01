@@ -135,6 +135,10 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   // Display positions: bottom (current user), top, left, right
   private positionMap: Record<string, 'bottom' | 'top' | 'left' | 'right'> = {};
 
+  // Admin hover state for viewing player cards
+  private hoveredPlayerPosition: PlayerPosition | null = null;
+  private playerIconPositions: Map<PlayerPosition, { x: number; y: number; size: number }> = new Map();
+
   private updateGameStateText(): void {
     if (!this.game) {
       this.gameStateText = '';
@@ -1412,6 +1416,48 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
+  onCanvasMouseMove(event: MouseEvent): void {
+    // Only handle hover if current user is admin
+    if (!this.game || !this.canvasRef || this.currentUser?.userType !== 'admin') {
+      if (this.hoveredPlayerPosition !== null) {
+        this.hoveredPlayerPosition = null;
+        this.renderTable();
+      }
+      return;
+    }
+
+    const canvas = this.canvasRef.nativeElement;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = this.TABLE_WIDTH / rect.width;
+    const scaleY = this.TABLE_HEIGHT / rect.height;
+    const x = (event.clientX - rect.left) * scaleX;
+    const y = (event.clientY - rect.top) * scaleY;
+
+    // Check if hovering over any player icon
+    let foundHover = false;
+    for (const [position, iconPos] of this.playerIconPositions.entries()) {
+      const dx = x - (iconPos.x + iconPos.size / 2);
+      const dy = y - (iconPos.y + iconPos.size / 2);
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance <= iconPos.size / 2) {
+        if (this.hoveredPlayerPosition !== position) {
+          this.hoveredPlayerPosition = position;
+          this.renderTable();
+        }
+        foundHover = true;
+        break;
+      }
+    }
+
+    if (!foundHover && this.hoveredPlayerPosition !== null) {
+      this.hoveredPlayerPosition = null;
+      this.renderTable();
+    }
+  }
+
   private handleCardSelectionClick(x: number, y: number): void {
     if (!this.game || !this.myPosition) return;
 
@@ -1898,6 +1944,9 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     const iconSize = 50;
     const positions: Array<'north' | 'south' | 'east' | 'west'> = ['north', 'south', 'east', 'west'];
     
+    // Clear player icon positions for hover detection
+    this.playerIconPositions.clear();
+    
     // Check if we're in selecting state and if current user is the high bidder
     const isSelectingState = this.game.state === 'selecting';
     const isCurrentUserHighBidder = isSelectingState && this.game.highBidder === this.myPosition;
@@ -1939,6 +1988,11 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
         iconX = this.TABLE_WIDTH - margin - this.CARD_WIDTH_DISPLAY / 2 - iconSize / 2;
         const rightCardsStartY = (this.TABLE_HEIGHT - (this.CARD_HEIGHT_DISPLAY + 30 * 9)) / 2;
         iconY = rightCardsStartY - iconSize - 45;
+      }
+
+      // Store icon position for hover detection (only if admin)
+      if (this.currentUser?.userType === 'admin') {
+        this.playerIconPositions.set(backendPos as PlayerPosition, { x: iconX, y: iconY, size: iconSize });
       }
 
       // Draw icon background circle
@@ -1987,6 +2041,47 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       this.ctx.shadowBlur = 0;
       this.ctx.shadowOffsetX = 0;
       this.ctx.shadowOffsetY = 0;
+    }
+
+    // Render hovered player's cards if admin is hovering over an icon
+    if (this.hoveredPlayerPosition && this.currentUser?.userType === 'admin') {
+      this.renderHoveredPlayerCards(this.hoveredPlayerPosition);
+    }
+  }
+
+  private renderHoveredPlayerCards(position: PlayerPosition): void {
+    if (!this.ctx || !this.game || !this.cardImage) return;
+
+    const cards = this.game.gameState.hands[position];
+    if (!cards || cards.length === 0) return;
+
+    const cardGap = 2;
+    const totalWidth = cards.length * this.CARD_WIDTH_DISPLAY + (cards.length - 1) * cardGap;
+    const startX = (this.TABLE_WIDTH - totalWidth) / 2;
+    const centerY = this.TABLE_HEIGHT / 2 - this.CARD_HEIGHT_DISPLAY / 2;
+
+    // Draw semi-transparent background
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    this.ctx.fillRect(
+      startX - 10,
+      centerY - 10,
+      totalWidth + 20,
+      this.CARD_HEIGHT_DISPLAY + 20
+    );
+
+    // Draw cards left to right with 2px gap
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      const cardX = startX + i * (this.CARD_WIDTH_DISPLAY + cardGap);
+      const sourceX = this.getCardSourceX(card);
+
+      this.ctx.drawImage(
+        this.cardImage,
+        sourceX, 0,
+        this.CARD_WIDTH_SOURCE, this.CARD_HEIGHT_SOURCE,
+        cardX, centerY,
+        this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY
+      );
     }
   }
 

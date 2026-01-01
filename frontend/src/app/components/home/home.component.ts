@@ -40,9 +40,20 @@ export class HomeComponent implements OnInit {
       this.tables.set(tables);
     });
 
-    // Subscribe to game started events - navigate all players when game starts
+    // Subscribe to game started events - navigate only if the user is part of that table
     this.socketService.onGameStarted().subscribe(data => {
-      this.router.navigate(['/game', data.gameId]);
+      // Check if current user is part of the table that started the game
+      const table = this.tables().find(t => t.id === data.tableId);
+      if (table && this.currentUser) {
+        const isPlayerAtTable = Object.values(table.positions).some(
+          player => player?.id === this.currentUser?.id
+        );
+        
+        // Only navigate if the current user is at this table
+        if (isPlayerAtTable) {
+          this.router.navigate(['/game', data.gameId]);
+        }
+      }
     });
   }
 

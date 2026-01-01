@@ -1246,6 +1246,9 @@ export class GameService implements OnModuleInit {
         
         // Update trump suit if set
         aiPlayer.setTrumpSuit(game.trumpSuit);
+        
+        // Update high bidder
+        aiPlayer.setHighBidder(game.highBidder);
       }
     }
   }

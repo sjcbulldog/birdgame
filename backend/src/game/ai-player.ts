@@ -25,6 +25,8 @@ export class AIPlayer {
   private discardedCards: Card[];
   private completedTricks: CompletedTrick[];
   private trumpSuit: Suit | null;
+  private selectedTrumpSuit: Suit | null;
+  private highBidder: PlayerPosition | null;
 
   constructor(position: PlayerPosition) {
     this.position = position;
@@ -33,6 +35,8 @@ export class AIPlayer {
     this.discardedCards = [];
     this.completedTricks = [];
     this.trumpSuit = null;
+    this.selectedTrumpSuit = null;
+    this.highBidder = null;
   }
 
   /**
@@ -68,6 +72,13 @@ export class AIPlayer {
    */
   setTrumpSuit(suit: Suit | null): void {
     this.trumpSuit = suit;
+  }
+
+  /**
+   * Set the high bidder (player who won the bid)
+   */
+  setHighBidder(bidder: PlayerPosition | null): void {
+    this.highBidder = bidder;
   }
 
   /**
@@ -119,32 +130,137 @@ export class AIPlayer {
 
   /**
    * Select which 9 cards to keep from 15 (9 in hand + 6 in centerPile)
+   * Strategy:
+   * 1. Keep ALL trump cards (including bird/red-1 if trump-colored)
+   * 2. Keep ALL 14s (unbeatable when trumps exhausted)
+   * 3. Keep maximum contiguous runs from 14 down in off-suits
+   * 4. Aggressively void weak suits (1-3 cards if trump 6+, else 1-2 cards)
+   * 5. Prefer non-point cards over point cards to stash points in discards for last trick
    */
   selectCards(centerPileCards: Card[]): string[] {
-    // Combine hand with centerPile
     const allCards = [...this.hand, ...centerPileCards];
     
-    // Sort by value (keep high value cards)
-    const sorted = allCards.sort((a, b) => {
-      // Prioritize special cards
-      if (a.color === 'bird') return -1;
-      if (b.color === 'bird') return 1;
-      if (a.color === 'red' && a.value === 1) return -1;
-      if (b.color === 'red' && b.value === 1) return 1;
-      
-      // Then by value
-      return b.value - a.value;
+    // Phase 1: Determine best trump suit
+    const trumpPotentials = this.evaluateTrumpPotential(allCards);
+    const bestTrumpSuit = trumpPotentials[0].suit;
+    this.selectedTrumpSuit = bestTrumpSuit;
+    
+    const cardsToKeep: Card[] = [];
+    const cardsRemaining: Card[] = [...allCards];
+    
+    // Phase 2: Keep ALL trump cards (including bird and red-1 if in trump color)
+    const trumpCards = cardsRemaining.filter(card => 
+      card.color === bestTrumpSuit || 
+      card.color === 'bird' || 
+      (card.color === 'red' && card.value === 1)
+    );
+    cardsToKeep.push(...trumpCards);
+    trumpCards.forEach(card => {
+      const idx = cardsRemaining.findIndex(c => c.id === card.id);
+      if (idx >= 0) cardsRemaining.splice(idx, 1);
     });
-
-    // Keep best 9 cards
-    return sorted.slice(0, 9).map(c => c.id);
+    
+    // Phase 3: Keep ALL 14s regardless of suit
+    const fourteens = cardsRemaining.filter(card => card.value === 14);
+    cardsToKeep.push(...fourteens);
+    fourteens.forEach(card => {
+      const idx = cardsRemaining.findIndex(c => c.id === card.id);
+      if (idx >= 0) cardsRemaining.splice(idx, 1);
+    });
+    
+    // Phase 4: Keep contiguous runs from 14 down in off-suits
+    const offSuits = (['red', 'black', 'green', 'yellow'] as Suit[])
+      .filter(suit => suit !== bestTrumpSuit);
+    
+    for (const suit of offSuits) {
+      const run = this.findContiguousRunFromFourteen(cardsRemaining, suit);
+      if (run.length > 0) {
+        // Only keep runs if we have space, but prioritize longer runs
+        const spaceLeft = 9 - cardsToKeep.length;
+        const runToKeep = run.slice(0, Math.min(run.length, spaceLeft));
+        cardsToKeep.push(...runToKeep);
+        runToKeep.forEach(card => {
+          const idx = cardsRemaining.findIndex(c => c.id === card.id);
+          if (idx >= 0) cardsRemaining.splice(idx, 1);
+        });
+      }
+    }
+    
+    // Phase 5: Fill remaining slots, voiding weak suits and preferring non-point cards
+    const trumpCount = trumpCards.length;
+    const voidThreshold = trumpCount >= 6 ? 3 : 2; // Void 1-3 cards if trump 6+, else 1-2
+    
+    // Analyze remaining cards by suit
+    const suitGroups: Record<string, Card[]> = {};
+    for (const card of cardsRemaining) {
+      const suit = card.color;
+      if (!suitGroups[suit]) suitGroups[suit] = [];
+      suitGroups[suit].push(card);
+    }
+    
+    // Separate cards into void candidates and keepers
+    const voidCandidates: Card[] = [];
+    const keeperCandidates: Card[] = [];
+    
+    for (const suit in suitGroups) {
+      const suitCards = suitGroups[suit];
+      if (suitCards.length <= voidThreshold) {
+        // Void this weak suit - prefer discarding point cards
+        voidCandidates.push(...suitCards.sort((a, b) => {
+          const aPoints = this.isPointCard(a);
+          const bPoints = this.isPointCard(b);
+          if (aPoints && !bPoints) return -1; // Discard point cards first
+          if (!aPoints && bPoints) return 1;
+          return b.value - a.value; // Then by value
+        }));
+      } else {
+        keeperCandidates.push(...suitCards);
+      }
+    }
+    
+    // Fill remaining slots with keeper candidates, preferring non-point cards
+    const spaceLeft = 9 - cardsToKeep.length;
+    if (spaceLeft > 0 && keeperCandidates.length > 0) {
+      // Sort: non-point cards first, then by value
+      keeperCandidates.sort((a, b) => {
+        const aPoints = this.isPointCard(a);
+        const bPoints = this.isPointCard(b);
+        if (!aPoints && bPoints) return -1; // Keep non-point cards
+        if (aPoints && !bPoints) return 1;
+        return b.value - a.value; // Then by value
+      });
+      
+      cardsToKeep.push(...keeperCandidates.slice(0, spaceLeft));
+    }
+    
+    // If still need more cards, take from void candidates (shouldn't happen often)
+    const finalSpaceLeft = 9 - cardsToKeep.length;
+    if (finalSpaceLeft > 0 && voidCandidates.length > 0) {
+      // Prefer keeping non-point cards even from void candidates
+      voidCandidates.sort((a, b) => {
+        const aPoints = this.isPointCard(a);
+        const bPoints = this.isPointCard(b);
+        if (!aPoints && bPoints) return -1;
+        if (aPoints && !bPoints) return 1;
+        return b.value - a.value;
+      });
+      cardsToKeep.push(...voidCandidates.slice(0, finalSpaceLeft));
+    }
+    
+    return cardsToKeep.slice(0, 9).map(c => c.id);
   }
 
   /**
    * Declare trump based on hand composition
+   * Uses the suit selected during card selection for consistency
    */
   declareTrump(): Suit {
-    // Count cards of each suit
+    // If we already determined trump during card selection, use that
+    if (this.selectedTrumpSuit) {
+      return this.selectedTrumpSuit;
+    }
+    
+    // Fallback: Count cards of each suit (treating bird and red-1 as trump candidates)
     const suitCounts: Record<Suit, number> = {
       red: 0,
       black: 0,
@@ -155,6 +271,15 @@ export class AIPlayer {
     for (const card of this.hand) {
       if (card.color !== 'bird') {
         suitCounts[card.color as Suit]++;
+      }
+    }
+    
+    // Add bird to all suits for consideration
+    const hasBird = this.hand.some(c => c.color === 'bird');
+    const hasRedOne = this.hand.some(c => c.color === 'red' && c.value === 1);
+    if (hasBird || hasRedOne) {
+      for (const suit in suitCounts) {
+        suitCounts[suit as Suit]++;
       }
     }
 
@@ -174,27 +299,504 @@ export class AIPlayer {
 
   /**
    * Play a card from hand given current trick state
+   * Strategy varies based on role: bidder, partner of bidder, or opponent
    */
   playCard(currentTrick: CurrentTrick, positionInOrder: number): string {
     const playableCards = this.getPlayableCards(currentTrick);
     
     if (playableCards.length === 0) {
-      // Should never happen, but fallback to first card
       return this.hand[0]?.id || '';
     }
 
-    // Simple strategy: 
-    // - If leading, play highest card
-    // - If following, play lowest valid card
+    if (!this.highBidder || !this.trumpSuit) {
+      // Fallback to simple strategy if context missing
+      return this.playSimple(playableCards, positionInOrder);
+    }
+
+    // Determine my role
+    const isBidder = this.position === this.highBidder;
+    const isPartner = this.getPartner(this.position) === this.highBidder;
+    const isOpponent = !isBidder && !isPartner;
+
+    if (isBidder) {
+      return this.playAsBidder(playableCards, currentTrick, positionInOrder);
+    } else if (isPartner) {
+      return this.playAsPartner(playableCards, currentTrick, positionInOrder);
+    } else {
+      return this.playAsOpponent(playableCards, currentTrick, positionInOrder);
+    }
+  }
+
+  /**
+   * Simple fallback strategy
+   */
+  private playSimple(playableCards: Card[], positionInOrder: number): string {
     if (positionInOrder === 0) {
-      // Leading - play highest card
       const sorted = playableCards.sort((a, b) => b.value - a.value);
       return sorted[0].id;
     } else {
-      // Following - play lowest valid card
       const sorted = playableCards.sort((a, b) => a.value - b.value);
       return sorted[0].id;
     }
+  }
+
+  /**
+   * Strategy for the bidder (won the bid)
+   * 1. Exhaust trumps from other players while minimizing point loss
+   * 2. Play non-trump cards after exhausting trumps
+   * 3. Regain control with trumps if opponents win a trick
+   * 4. Save a trump for the last trick (unless no points in discard)
+   */
+  private playAsBidder(playableCards: Card[], currentTrick: CurrentTrick, positionInOrder: number): string {
+    const tricksPlayed = this.completedTricks.length;
+    const isLastTrick = tricksPlayed === 8;
+    const hasDiscardPoints = this.hasPointsInDiscards();
+    
+    if (positionInOrder === 0) {
+      // I'm leading
+      const trumps = this.getTrumpCards(playableCards);
+      const nonTrumps = playableCards.filter(c => !this.isTrumpCard(c));
+      
+      // Early game: exhaust trumps
+      if (tricksPlayed < 5 && trumps.length > 0) {
+        // Lead trumps, prefer non-point trumps to minimize loss
+        const nonPointTrumps = trumps.filter(c => !this.isPointCard(c));
+        if (nonPointTrumps.length > 0) {
+          // Lead lowest non-point trump
+          nonPointTrumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
+          return nonPointTrumps[0].id;
+        }
+        // All trumps are point cards, lead lowest
+        trumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
+        return trumps[0].id;
+      }
+      
+      // Mid-late game: play non-trumps if we have them
+      if (nonTrumps.length > 0) {
+        // Play highest non-trump to win when trumps are exhausted
+        nonTrumps.sort((a, b) => b.value - a.value);
+        return nonTrumps[0].id;
+      }
+      
+      // Only trumps left, play them
+      if (isLastTrick || !hasDiscardPoints) {
+        // Last trick or no discard points, play any trump
+        trumps.sort((a, b) => this.trumpValue(b) - this.trumpValue(a));
+        return trumps[0].id;
+      }
+      
+      // Save trump for last trick, play lowest
+      trumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
+      return trumps[0].id;
+    } else {
+      // I'm following
+      const trickWinner = this.getCurrentTrickWinner(currentTrick);
+      const myTeamWinning = this.isMyTeam(trickWinner);
+      
+      if (myTeamWinning) {
+        // My team is winning, play lowest valid card
+        playableCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+        return playableCards[0].id;
+      } else {
+        // Opponents winning, try to take it back
+        const winningCards = playableCards.filter(c => this.canBeatTrick(c, currentTrick));
+        if (winningCards.length > 0) {
+          // Take trick with lowest winning card
+          winningCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+          return winningCards[0].id;
+        }
+        // Can't win, throw lowest card
+        playableCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+        return playableCards[0].id;
+      }
+    }
+  }
+
+  /**
+   * Strategy for partner of bidder
+   * 1. Signal red-1 or bird early if I have it
+   * 2. When partner exhausting trumps, play trumps lowest to highest
+   * 3. When partner plays non-trump high card, play points
+   * 4. Otherwise avoid points
+   */
+  private playAsPartner(playableCards: Card[], currentTrick: CurrentTrick, positionInOrder: number): string {
+    const tricksPlayed = this.completedTricks.length;
+    
+    // Early signaling: if I have red-1 or bird, try to show it
+    if (tricksPlayed < 2) {
+      const redOne = playableCards.find(c => c.color === 'red' && c.value === 1);
+      const bird = playableCards.find(c => c.color === 'bird');
+      
+      if (positionInOrder === 0) {
+        // Leading, play red-1 or bird to signal
+        if (redOne) return redOne.id;
+        if (bird) return bird.id;
+      } else {
+        // Following, play red-1 or bird if I can
+        const leadCard = currentTrick.cards[0].card;
+        if (redOne && (leadCard.color === 'red' || leadCard.color === 'bird' || this.isTrumpCard(leadCard))) {
+          return redOne.id;
+        }
+        if (bird && (leadCard.color === 'bird' || this.isTrumpCard(leadCard))) {
+          return bird.id;
+        }
+      }
+    }
+    
+    if (positionInOrder === 0) {
+      // I'm leading, play lowest valid card
+      playableCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+      return playableCards[0].id;
+    } else {
+      // I'm following
+      const partnerPlayed = this.hasPartnerPlayed(currentTrick);
+      
+      if (partnerPlayed) {
+        const partnerCard = this.getPartnerCard(currentTrick);
+        const leadCard = currentTrick.cards[0].card;
+        const partnerLed = currentTrick.cards[0].player === this.getPartner(this.position);
+        
+        // If partner led trump, play trumps lowest to highest
+        if (partnerLed && this.isTrumpCard(partnerCard)) {
+          const trumps = this.getTrumpCards(playableCards);
+          if (trumps.length > 0) {
+            trumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
+            return trumps[0].id;
+          }
+        }
+        
+        // If partner played non-trump and it's likely high card in suit
+        if (!this.isTrumpCard(partnerCard) && partnerCard.color !== 'bird') {
+          const isHighCard = this.isLikelyHighCard(partnerCard, currentTrick);
+          if (isHighCard) {
+            // Play point cards
+            const pointCards = playableCards.filter(c => this.isPointCard(c));
+            if (pointCards.length > 0) {
+              pointCards.sort((a, b) => this.cardValue(b) - this.cardValue(a));
+              return pointCards[0].id;
+            }
+          }
+        }
+      }
+      
+      // Default: avoid points, play lowest
+      const nonPointCards = playableCards.filter(c => !this.isPointCard(c));
+      if (nonPointCards.length > 0) {
+        nonPointCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+        return nonPointCards[0].id;
+      }
+      
+      playableCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+      return playableCards[0].id;
+    }
+  }
+
+  /**
+   * Strategy for opponents of bidding team
+   * 1. Look for opportunities to take tricks
+   * 2. Provide points if partner hasn't played and cards aren't high
+   */
+  private playAsOpponent(playableCards: Card[], currentTrick: CurrentTrick, positionInOrder: number): string {
+    if (positionInOrder === 0) {
+      // I'm leading, play highest card
+      playableCards.sort((a, b) => this.cardValue(b) - this.cardValue(a));
+      return playableCards[0].id;
+    } else {
+      // I'm following
+      const partnerHasPlayed = this.hasPartnerPlayed(currentTrick);
+      const currentWinner = this.getCurrentTrickWinner(currentTrick);
+      const myTeamWinning = this.isMyTeam(currentWinner);
+      
+      if (!partnerHasPlayed) {
+        // Partner hasn't played yet
+        const canWin = playableCards.some(c => this.canBeatTrick(c, currentTrick));
+        
+        if (canWin) {
+          // I can take the trick
+          const winningCards = playableCards.filter(c => this.canBeatTrick(c, currentTrick));
+          winningCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+          return winningCards[0].id;
+        } else {
+          // Can't win, check if cards played are likely not high cards
+          const leadCard = currentTrick.cards[0].card;
+          const cardsNotHigh = !this.isLikelyHighCard(leadCard, currentTrick);
+          
+          if (cardsNotHigh) {
+            // Provide points for partner to collect
+            const pointCards = playableCards.filter(c => this.isPointCard(c));
+            if (pointCards.length > 0) {
+              pointCards.sort((a, b) => this.cardValue(b) - this.cardValue(a));
+              return pointCards[0].id;
+            }
+          }
+          
+          // Default: play lowest
+          playableCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+          return playableCards[0].id;
+        }
+      } else {
+        // Partner has played
+        if (myTeamWinning) {
+          // Partner winning, throw lowest
+          playableCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+          return playableCards[0].id;
+        } else {
+          // Opponents winning, try to take it
+          const winningCards = playableCards.filter(c => this.canBeatTrick(c, currentTrick));
+          if (winningCards.length > 0) {
+            winningCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+            return winningCards[0].id;
+          }
+          // Can't win, throw lowest
+          playableCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+          return playableCards[0].id;
+        }
+      }
+    }
+  }
+
+  /**
+   * Get partner position
+   */
+  private getPartner(position: PlayerPosition): PlayerPosition {
+    const partnerships: Record<PlayerPosition, PlayerPosition> = {
+      north: 'south',
+      south: 'north',
+      east: 'west',
+      west: 'east',
+    };
+    return partnerships[position];
+  }
+
+  /**
+   * Check if position is on my team
+   */
+  private isMyTeam(position: PlayerPosition): boolean {
+    return position === this.position || position === this.getPartner(this.position);
+  }
+
+  /**
+   * Check if partner has played in current trick
+   */
+  private hasPartnerPlayed(trick: CurrentTrick): boolean {
+    const partner = this.getPartner(this.position);
+    return trick.cards.some(c => c.player === partner);
+  }
+
+  /**
+   * Get partner's card from current trick
+   */
+  private getPartnerCard(trick: CurrentTrick): Card {
+    const partner = this.getPartner(this.position);
+    return trick.cards.find(c => c.player === partner)!.card;
+  }
+
+  /**
+   * Check if there are points in discarded cards
+   */
+  private hasPointsInDiscards(): boolean {
+    return this.discardedCards.some(c => this.isPointCard(c));
+  }
+
+  /**
+   * Get trump cards from a set of cards
+   */
+  private getTrumpCards(cards: Card[]): Card[] {
+    return cards.filter(c => this.isTrumpCard(c));
+  }
+
+  /**
+   * Check if a card is a trump card
+   */
+  private isTrumpCard(card: Card): boolean {
+    if (!this.trumpSuit) return false;
+    return card.color === this.trumpSuit || 
+           card.color === 'bird' || 
+           (card.color === 'red' && card.value === 1);
+  }
+
+  /**
+   * Get trump value for comparison (red-1 > bird > regular trumps by value)
+   */
+  private trumpValue(card: Card): number {
+    if (card.color === 'red' && card.value === 1) return 100;
+    if (card.color === 'bird') return 90;
+    return card.value;
+  }
+
+  /**
+   * Get general card value for comparison
+   */
+  private cardValue(card: Card): number {
+    if (this.isTrumpCard(card)) {
+      return 1000 + this.trumpValue(card);
+    }
+    return card.value;
+  }
+
+  /**
+   * Determine current trick winner
+   */
+  private getCurrentTrickWinner(trick: CurrentTrick): PlayerPosition {
+    if (trick.cards.length === 0) return trick.leadPlayer!;
+    
+    let winningCard = trick.cards[0];
+    
+    for (let i = 1; i < trick.cards.length; i++) {
+      const currentCard = trick.cards[i];
+      if (this.cardBeats(currentCard.card, winningCard.card, trick.leadSuit)) {
+        winningCard = currentCard;
+      }
+    }
+    
+    return winningCard.player;
+  }
+
+  /**
+   * Check if cardA beats cardB
+   */
+  private cardBeats(cardA: Card, cardB: Card, leadSuit: Suit | null): boolean {
+    const aIsTrump = this.isTrumpCard(cardA);
+    const bIsTrump = this.isTrumpCard(cardB);
+    
+    // Both trump: compare trump values
+    if (aIsTrump && bIsTrump) {
+      return this.trumpValue(cardA) > this.trumpValue(cardB);
+    }
+    
+    // Only A is trump: A wins
+    if (aIsTrump) return true;
+    
+    // Only B is trump: B wins
+    if (bIsTrump) return false;
+    
+    // Neither trump: must follow lead suit
+    if (leadSuit && cardA.color === leadSuit && cardB.color === leadSuit) {
+      return cardA.value > cardB.value;
+    }
+    
+    // A follows lead, B doesn't: A wins
+    if (leadSuit && cardA.color === leadSuit) return true;
+    
+    // B follows lead, A doesn't: B wins
+    if (leadSuit && cardB.color === leadSuit) return false;
+    
+    // Neither follows lead: first card wins (B wins)
+    return false;
+  }
+
+  /**
+   * Check if a card can beat the current trick
+   */
+  private canBeatTrick(card: Card, trick: CurrentTrick): boolean {
+    if (trick.cards.length === 0) return true;
+    
+    const currentWinner = this.getCurrentTrickWinner(trick);
+    const winningCard = trick.cards.find(c => c.player === currentWinner)!.card;
+    
+    return this.cardBeats(card, winningCard, trick.leadSuit);
+  }
+
+  /**
+   * Check if a card is likely a high card in its suit
+   * (14 is always high, 13 if 14 seen, etc.)
+   */
+  private isLikelyHighCard(card: Card, trick: CurrentTrick): boolean {
+    if (card.color === 'bird') return true;
+    if (card.color === 'red' && card.value === 1) return true;
+    if (card.value === 14) return true;
+    
+    // Check if higher cards in this suit have been played
+    const suit = card.color as Suit;
+    const seenCards = [...this.completedTricks.flatMap(t => t.cards.map(c => c.card)), 
+                       ...trick.cards.map(c => c.card)];
+    
+    // Check if all higher cards in suit have been seen
+    for (let v = card.value + 1; v <= 14; v++) {
+      const higherCardSeen = seenCards.some(c => c.color === suit && c.value === v);
+      if (!higherCardSeen) return false; // Higher card still out there
+    }
+    
+    return true; // All higher cards have been played
+  }
+
+  /**
+   * Evaluate trump potential for each suit
+   * Returns suits ordered by strength (length + high cards + special cards)
+   */
+  private evaluateTrumpPotential(cards: Card[]): Array<{ suit: Suit; score: number }> {
+    const suitScores: Record<Suit, number> = {
+      red: 0,
+      black: 0,
+      green: 0,
+      yellow: 0,
+    };
+    
+    // Count cards and evaluate strength for each suit
+    for (const card of cards) {
+      if (card.color === 'bird' || (card.color === 'red' && card.value === 1)) {
+        // Bird and red-1 add to ALL suits since they're trump regardless
+        for (const suit in suitScores) {
+          suitScores[suit as Suit] += 5; // Strong bonus for special cards
+        }
+      } else if (card.color in suitScores) {
+        const suit = card.color as Suit;
+        suitScores[suit] += 3; // Base points for having a card
+        
+        // Bonus for high cards
+        if (card.value >= 12) {
+          suitScores[suit] += 2;
+        }
+        if (card.value === 14) {
+          suitScores[suit] += 1; // Extra for 14
+        }
+      }
+    }
+    
+    // Convert to array and sort by score descending
+    return Object.entries(suitScores)
+      .map(([suit, score]) => ({ suit: suit as Suit, score }))
+      .sort((a, b) => b.score - a.score);
+  }
+  
+  /**
+   * Find contiguous run from 14 downward in a specific suit
+   * Returns cards in descending order (14, 13, 12, ...)
+   */
+  private findContiguousRunFromFourteen(cards: Card[], suit: Suit): Card[] {
+    const suitCards = cards
+      .filter(card => card.color === suit)
+      .sort((a, b) => b.value - a.value);
+    
+    if (suitCards.length === 0 || suitCards[0].value !== 14) {
+      return []; // No 14 in this suit, no run
+    }
+    
+    const run: Card[] = [suitCards[0]]; // Start with 14
+    let expectedValue = 13;
+    
+    for (let i = 1; i < suitCards.length; i++) {
+      if (suitCards[i].value === expectedValue) {
+        run.push(suitCards[i]);
+        expectedValue--;
+      } else {
+        break; // Run is broken
+      }
+    }
+    
+    return run;
+  }
+  
+  /**
+   * Check if a card is worth points in scoring
+   */
+  private isPointCard(card: Card): boolean {
+    if (card.color === 'bird') return true; // 20 points
+    if (card.color === 'red' && card.value === 1) return true; // 30 points
+    if (card.value === 5) return true; // 5 points
+    if (card.value === 10) return true; // 10 points
+    if (card.value === 14) return true; // 10 points
+    return false;
   }
 
   private longestSuitInHand(cards: Card[]): Card[] {
