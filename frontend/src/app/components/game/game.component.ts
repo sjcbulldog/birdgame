@@ -17,7 +17,7 @@ interface Card {
 
 interface ServerGameState {
   id: string;
-  state: 'new' | 'dealing' | 'bidding' | 'selecting' | 'declaring_trump' | 'playing' | 'scoring' | 'complete';
+  state: 'new' | 'dealing' | 'bidding' | 'selecting' | 'declaring_trump' | 'playing' | 'scoring' | 'showscore' | 'complete';
   northSouthScore: number;
   eastWestScore: number;
   dealer: string;
@@ -25,9 +25,18 @@ interface ServerGameState {
   highBid: number | null;
   highBidder: string | null;
   trumpSuit: string | null;
+  winningTeam: 'northSouth' | 'eastWest' | null;
+  lastHandResult: {
+    biddingTeam: 'northSouth' | 'eastWest';
+    bid: number;
+    northSouthPoints: number;
+    eastWestPoints: number;
+    madeBid: boolean;
+  } | null;
   playerTypes: Record<string, 'human' | 'computer'>;
   playerNames: Record<string, string>;
   playerReady: Record<string, boolean>;
+  scoringReady: Record<string, boolean>;
   table: {
     id: string;
     tableNumber: number;
@@ -96,6 +105,13 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   // Bidding UI state
   selectedBidAmount: number = 60;
   isSubmittingBid = false;
+  
+  // Scoring popup
+  showScoringPopup = false;
+
+  // Winner popup
+  showWinnerPopup = false;
+  winningTeam: 'northSouth' | 'eastWest' | null = null;
 
   // Selecting state - track selected cards for discard
   selectedCardsForDiscard: Set<string> = new Set();
@@ -189,6 +205,17 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
           console.log(`%cGAME STATE CHANGED: ${this.previousGameState} → ${game.state}`, 
             'color: #00ff00; font-weight: bold; font-size: 14px;');
           
+          // Show scoring popup when entering showscore state
+          if (game.state === 'showscore' && game.lastHandResult) {
+            this.showScoringPopup = true;
+          }
+
+          // Show winner popup when game is complete
+          if (game.state === 'complete' && game.winningTeam) {
+            this.showWinnerPopup = true;
+            this.winningTeam = game.winningTeam;
+          }
+          
           // Start dealing animation when transitioning to dealing state
           if (game.state === 'dealing') {
             this.startDealingAnimation();
@@ -196,12 +223,27 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
         } else if (!this.previousGameState) {
           console.log(`%cGAME STATE INITIALIZED: ${game.state}`, 
             'color: #00ff00; font-weight: bold; font-size: 14px;');
+          
+          // Handle initial state - show popups if needed
+          if (game.state === 'showscore' && game.lastHandResult) {
+            this.showScoringPopup = true;
+          }
+          
+          if (game.state === 'complete' && game.winningTeam) {
+            this.showWinnerPopup = true;
+            this.winningTeam = game.winningTeam;
+          }
         }
         
         this.previousGameState = game.state;
         this.game = game;
         this.playerReadyState = game.playerReady || {};
         this.updateGameStateText();
+        
+        // Update selected bid amount when it's the player's turn to bid
+        if (game.state === 'bidding' && game.currentBidder === this.myPosition) {
+          this.selectedBidAmount = this.getMinBid();
+        }
         
         // Check if a trick was just completed
         if (game.state === 'playing' && game.gameState.completedTricks.length > this.lastCompletedTrickCount) {
@@ -715,13 +757,19 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     }
 
     // Render current trick if playing (or if displaying completed trick or animating to won pile)
-    if (this.game.state === 'playing' && (this.game.gameState.currentTrick.cards.length > 0 || this.displayingCompletedTrick || this.animatingTrickToWonPile)) {
+    // Allow rendering during scoring state if we're displaying the completed trick or animating
+    if ((this.game.state === 'playing' || this.game.state === 'scoring') && (this.game.gameState.currentTrick.cards.length > 0 || this.displayingCompletedTrick || this.animatingTrickToWonPile)) {
       this.renderCurrentTrick();
     }
 
     // Render trump indicator if trump has been declared
     if (this.game.trumpSuit && this.game.state === 'playing') {
       this.renderTrumpIndicator();
+    }
+
+    // Render bid info during playing state
+    if (this.game.state === 'playing' && this.game.highBidder && this.game.highBid) {
+      this.renderBidInfo();
     }
 
     // Render scores in all game states
@@ -1204,6 +1252,70 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   declareTrump(suit: 'red' | 'black' | 'green' | 'yellow'): void {
     if (!this.gameId || !this.myPosition) return;
     this.socketService.declareTrump(this.gameId, this.myPosition, suit);
+  }
+
+  // Scoring methods
+  closeScoringPopup(): void {
+    this.showScoringPopup = false;
+    // Mark this player as ready for next hand
+    if (this.gameId && this.myPosition) {
+      this.socketService.scoringReady(this.gameId, this.myPosition);
+    }
+  }
+
+  getTeamNames(team: 'northSouth' | 'eastWest'): string {
+    if (!this.game?.playerNames) return team === 'northSouth' ? 'North / South' : 'East / West';
+    
+    if (team === 'northSouth') {
+      const northName = this.game.playerNames['north'] || 'North';
+      const southName = this.game.playerNames['south'] || 'South';
+      return `${northName} / ${southName}`;
+    } else {
+      const eastName = this.game.playerNames['east'] || 'East';
+      const westName = this.game.playerNames['west'] || 'West';
+      return `${eastName} / ${westName}`;
+    }
+  }
+
+  // Winner popup methods
+  closeWinnerPopup(): void {
+    this.showWinnerPopup = false;
+    // Leave table and go to home
+    if (this.game?.table?.id) {
+      this.tableService.leaveTable(this.game.table.id).subscribe({
+        next: () => {
+          this.router.navigate(['/']);
+        },
+        error: (error) => {
+          console.error('Error leaving table:', error);
+          // Navigate anyway
+          this.router.navigate(['/']);
+        }
+      });
+    } else {
+      this.router.navigate(['/']);
+    }
+  }
+
+  getWinnerTeamName(): string {
+    if (!this.winningTeam || !this.game?.playerNames) return '';
+    return this.getTeamNames(this.winningTeam);
+  }
+
+  getWinnerScore(): number {
+    if (!this.winningTeam || !this.game) return 0;
+    return this.winningTeam === 'northSouth' ? this.game.northSouthScore : this.game.eastWestScore;
+  }
+
+  getLoserTeamName(): string {
+    if (!this.winningTeam || !this.game?.playerNames) return '';
+    const losingTeam = this.winningTeam === 'northSouth' ? 'eastWest' : 'northSouth';
+    return this.getTeamNames(losingTeam);
+  }
+
+  getLoserScore(): number {
+    if (!this.winningTeam || !this.game) return 0;
+    return this.winningTeam === 'northSouth' ? this.game.eastWestScore : this.game.northSouthScore;
   }
 
   private getPartner(position: string): string {
@@ -2070,6 +2182,67 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     this.ctx.strokeStyle = '#ffffff';
     this.ctx.lineWidth = 2;
     this.ctx.stroke();
+  }
+
+  private renderBidInfo(): void {
+    if (!this.ctx || !this.game || !this.game.highBidder || !this.game.highBid) return;
+
+    // Position: lower left, next to trump indicator
+    const margin = 12;
+    const trumpBoxWidth = 100;
+    const spacing = 12;
+    const boxX = margin + trumpBoxWidth + spacing;
+    const boxHeight = 50;
+    const boxY = this.TABLE_HEIGHT - boxHeight - margin;
+    const radius = 8;
+
+    // Determine bidding team
+    const biddingTeam = (this.game.highBidder === 'north' || this.game.highBidder === 'south') 
+      ? 'northSouth' 
+      : 'eastWest';
+    const teamName = this.getTeamNames(biddingTeam);
+
+    // Measure text to determine box width
+    this.ctx.font = '12px Arial';
+    const bidText = `Bid: ${this.game.highBid}`;
+    this.ctx.font = '11px Arial';
+    const teamTextWidth = this.ctx.measureText(teamName).width;
+    this.ctx.font = '12px Arial';
+    const bidTextWidth = this.ctx.measureText(bidText).width;
+    const maxTextWidth = Math.max(teamTextWidth, bidTextWidth);
+    const boxWidth = maxTextWidth + 24; // 12px padding on each side
+
+    // Draw rounded rectangle background
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    this.ctx.strokeStyle = '#ffffff';
+    this.ctx.lineWidth = 2;
+    
+    this.ctx.beginPath();
+    this.ctx.moveTo(boxX + radius, boxY);
+    this.ctx.lineTo(boxX + boxWidth - radius, boxY);
+    this.ctx.quadraticCurveTo(boxX + boxWidth, boxY, boxX + boxWidth, boxY + radius);
+    this.ctx.lineTo(boxX + boxWidth, boxY + boxHeight - radius);
+    this.ctx.quadraticCurveTo(boxX + boxWidth, boxY + boxHeight, boxX + boxWidth - radius, boxY + boxHeight);
+    this.ctx.lineTo(boxX + radius, boxY + boxHeight);
+    this.ctx.quadraticCurveTo(boxX, boxY + boxHeight, boxX, boxY + boxHeight - radius);
+    this.ctx.lineTo(boxX, boxY + radius);
+    this.ctx.quadraticCurveTo(boxX, boxY, boxX + radius, boxY);
+    this.ctx.closePath();
+    this.ctx.fill();
+    this.ctx.stroke();
+
+    // Draw team name
+    this.ctx.font = '11px Arial';
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'top';
+    this.ctx.fillText(teamName, boxX + boxWidth / 2, boxY + 6);
+
+    // Draw bid amount
+    this.ctx.font = 'bold 14px Arial';
+    this.ctx.fillStyle = '#ffd700'; // Gold color for bid
+    this.ctx.textBaseline = 'bottom';
+    this.ctx.fillText(bidText, boxX + boxWidth / 2, boxY + boxHeight - 6);
   }
 
   private renderBiddingInfo(): void {

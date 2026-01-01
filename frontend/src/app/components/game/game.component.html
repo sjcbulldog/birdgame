@@ -114,6 +114,68 @@
       </div>
     </div>
   }
+  
+  <!-- Scoring Result Popup -->
+  @if (showScoringPopup && game?.lastHandResult) {
+    <div class="scoring-popup-overlay" (click)="closeScoringPopup()">
+      <div class="scoring-popup" (click)="$event.stopPropagation()">
+        <h3>Hand Complete</h3>
+        
+        @if (game!.lastHandResult!.madeBid) {
+          <p class="bid-result success">
+            <strong>{{ getTeamNames(game!.lastHandResult!.biddingTeam) }}</strong>
+            made their bid of {{ game!.lastHandResult!.bid }}!
+          </p>
+        } @else {
+          <p class="bid-result failure">
+            <strong>{{ getTeamNames(game!.lastHandResult!.biddingTeam) }}</strong>
+            did not make their bid of {{ game!.lastHandResult!.bid }}.
+          </p>
+        }
+        
+        <div class="hand-points">
+          <div class="team-points">
+            <h4>{{ getTeamNames('northSouth') }}</h4>
+            <p class="points">{{ game!.lastHandResult!.northSouthPoints }} points</p>
+          </div>
+          <div class="team-points">
+            <h4>{{ getTeamNames('eastWest') }}</h4>
+            <p class="points">{{ game!.lastHandResult!.eastWestPoints }} points</p>
+          </div>
+        </div>
+        
+        <button class="btn btn-close-popup" (click)="closeScoringPopup()">OK</button>
+      </div>
+    </div>
+  }
+  
+  <!-- Winner Popup -->
+  @if (showWinnerPopup && winningTeam) {
+    <div class="winner-popup-overlay" (click)="closeWinnerPopup()">
+      <div class="winner-popup" (click)="$event.stopPropagation()">
+        <h2>🎉 Game Over! 🎉</h2>
+        
+        <div class="winner-announcement">
+          <h3>{{ getWinnerTeamName() }}</h3>
+          <p class="winner-text">wins the game!</p>
+        </div>
+        
+        <div class="final-scores">
+          <div class="score-row winner">
+            <span class="team-name">{{ getWinnerTeamName() }}</span>
+            <span class="score">{{ getWinnerScore() }} points</span>
+          </div>
+          <div class="score-row">
+            <span class="team-name">{{ getLoserTeamName() }}</span>
+            <span class="score">{{ getLoserScore() }} points</span>
+          </div>
+        </div>
+        
+        <button class="btn btn-close-popup" (click)="closeWinnerPopup()">OK</button>
+      </div>
+    </div>
+  }
+  
   <!-- Trump Declaration UI -->
   @if (canDeclareTrump()) {
     <div class="trump-panel">

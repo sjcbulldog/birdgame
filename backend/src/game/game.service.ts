@@ -32,6 +32,7 @@ interface GameStateData {
     bid: number | 'pass' | 'check';
     timestamp: Date;
   }>;
+  discardedCards: Card[];
 }
 
 @Injectable()
@@ -202,6 +203,25 @@ export class GameService implements OnModuleInit {
     }
   }
 
+  async completeGame(gameId: string): Promise<Game> {
+    const game = await this.gameRepository.findOne({ where: { id: gameId } });
+
+    if (!game) {
+      throw new NotFoundException(`Game with ID ${gameId} not found`);
+    }
+
+    // Determine winner
+    game.winningTeam = game.northSouthScore >= game.eastWestScore ? 'northSouth' : 'eastWest';
+    game.state = GameState.COMPLETE;
+
+    await this.gameRepository.save(game);
+
+    // Clean up AI players
+    this.cleanupAIPlayers(gameId);
+
+    return game;
+  }
+
   async startDealing(gameId: string): Promise<Game> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -274,7 +294,7 @@ export class GameService implements OnModuleInit {
 
       // Trigger computer player if current bidder is computer
       if (game.playerTypes[game.currentBidder] === 'computer') {
-        setTimeout(() => this.computerPlaceBid(gameId), 2000);
+        setTimeout(() => this.computerPlaceBid(gameId), 1000);
       }
 
       return savedGame;
@@ -330,11 +350,23 @@ export class GameService implements OnModuleInit {
         timestamp: new Date(),
       });
 
-      // Check if bidding is complete (3 consecutive passes after a bid)
-      const recentBids = game.gameState.biddingHistory.slice(-3);
-      const allPassed = recentBids.length === 3 && recentBids.every(b => b.bid === 'pass');
+      // Get list of players who have passed
+      const passedPlayers = new Set<PlayerPosition>();
+      for (const entry of game.gameState.biddingHistory) {
+        if (entry.bid === 'pass') {
+          passedPlayers.add(entry.player);
+        } else if (typeof entry.bid === 'number') {
+          // If a player bids after passing, they're back in
+          passedPlayers.delete(entry.player);
+        }
+      }
 
-      if (allPassed && game.highBidder) {
+      // Check if bidding is complete (only one player hasn't passed, or all passed)
+      const activePlayers = (['north', 'south', 'east', 'west'] as PlayerPosition[]).filter(
+        p => !passedPlayers.has(p)
+      );
+
+      if ((activePlayers.length <= 1 && game.highBidder) || activePlayers.length === 0) {
         // Bidding complete - transition to selecting
         game.state = GameState.SELECTING;
 
@@ -361,8 +393,8 @@ export class GameService implements OnModuleInit {
         return savedGame;
       }
 
-      // Move to next bidder
-      game.currentBidder = this.getNextPlayer(player);
+      // Move to next bidder (skip players who have passed)
+      game.currentBidder = this.getNextActiveBidder(player, passedPlayers);
 
       const savedGame = await queryRunner.manager.save(game);
       await queryRunner.commitTransaction();
@@ -373,7 +405,7 @@ export class GameService implements OnModuleInit {
 
       // Trigger computer player if next bidder is computer
       if (game.playerTypes[game.currentBidder] === 'computer') {
-        setTimeout(() => this.computerPlaceBid(gameId), 2000);
+        setTimeout(() => this.computerPlaceBid(gameId), 1000);
       }
 
       return savedGame;
@@ -422,6 +454,9 @@ export class GameService implements OnModuleInit {
 
       // Store the 6 discarded cards (the ones not selected from the 15-card hand)
       const discarded = hand.filter(c => !selectedCardIds.includes(c.id));
+
+      // Store discarded cards in game state
+      game.gameState.discardedCards = discarded;
 
       // Update AI player with discarded cards knowledge (if AI won the bid)
       if (game.playerTypes[player] === 'computer') {
@@ -489,7 +524,7 @@ export class GameService implements OnModuleInit {
 
       // Trigger computer player if lead player is computer
       if (game.playerTypes[game.highBidder] === 'computer') {
-        setTimeout(() => this.computerPlayCard(gameId), 1500);
+        setTimeout(() => this.computerPlayCard(gameId), 750);
       }
 
       return savedGame;
@@ -565,8 +600,45 @@ export class GameService implements OnModuleInit {
 
         // Check if hand is complete (9 tricks)
         if (game.gameState.completedTricks.length === 9) {
-          game.state = GameState.SCORING;
+          // Calculate hand points including discarded cards
+          let northSouthPoints = 0;
+          let eastWestPoints = 0;
 
+          for (const trick of game.gameState.completedTricks) {
+            if (trick.winner === 'north' || trick.winner === 'south') {
+              northSouthPoints += trick.points;
+            } else {
+              eastWestPoints += trick.points;
+            }
+          }
+
+          // Add discarded cards points to the last trick winner
+          if (game.gameState.discardedCards && game.gameState.discardedCards.length > 0) {
+            const discardedPoints = this.calculateTrickPoints(
+              game.gameState.discardedCards.map(card => ({ player: 'north' as PlayerPosition, card }))
+            );
+            const lastTrickWinner = game.gameState.completedTricks[8].winner;
+            if (lastTrickWinner === 'north' || lastTrickWinner === 'south') {
+              northSouthPoints += discardedPoints;
+            } else {
+              eastWestPoints += discardedPoints;
+            }
+          }
+
+          // Store last hand result for display
+          const biddingTeam = (game.highBidder === 'north' || game.highBidder === 'south') ? 'northSouth' : 'eastWest';
+          const biddingTeamPoints = biddingTeam === 'northSouth' ? northSouthPoints : eastWestPoints;
+          const madeBid = biddingTeamPoints >= game.highBid;
+
+          game.lastHandResult = {
+            biddingTeam,
+            bid: game.highBid,
+            northSouthPoints,
+            eastWestPoints,
+            madeBid
+          };
+
+          // Save the game first before transitioning to scoring
           const savedGame = await queryRunner.manager.save(game);
           await queryRunner.commitTransaction();
 
@@ -574,8 +646,41 @@ export class GameService implements OnModuleInit {
             this.gateway.emitGameUpdate(savedGame.id);
           }
 
-          // Auto-score the hand
-          setTimeout(() => this.scoreHand(gameId), 2000);
+          // Delay transition to scoring state to allow frontend animation to complete
+          // Frontend needs: 2s display + 1s animation = 3s total
+          setTimeout(async () => {
+            const queryRunner = this.gameRepository.manager.connection.createQueryRunner();
+            await queryRunner.connect();
+            await queryRunner.startTransaction();
+
+            try {
+              const game = await queryRunner.manager.findOne(Game, {
+                where: { id: gameId },
+                relations: ['table', 'table.northPlayer', 'table.southPlayer', 'table.eastPlayer', 'table.westPlayer'],
+              });
+
+              if (!game) {
+                await queryRunner.rollbackTransaction();
+                return;
+              }
+
+              game.state = GameState.SCORING;
+              const updatedGame = await queryRunner.manager.save(game);
+              await queryRunner.commitTransaction();
+
+              if (this.gateway) {
+                this.gateway.emitGameUpdate(updatedGame.id);
+              }
+
+              // Auto-score the hand after another 2 seconds
+              setTimeout(() => this.scoreHand(gameId), 2000);
+            } catch (error) {
+              await queryRunner.rollbackTransaction();
+              console.error('Error transitioning to scoring state:', error);
+            } finally {
+              await queryRunner.release();
+            }
+          }, 3000);
 
           return savedGame;
         }
@@ -597,7 +702,10 @@ export class GameService implements OnModuleInit {
         : this.getNextPlayer(currentTrick.cards[currentTrick.cards.length - 1].player);
 
       if (game.playerTypes[nextPlayer] === 'computer') {
-        setTimeout(() => this.computerPlayCard(gameId), 1500);
+        // If starting a new trick (currentTrick.cards.length === 0), wait for animation to complete (3s)
+        // Otherwise, use normal delay (750ms)
+        const delay = currentTrick.cards.length === 0 ? 3000 : 750;
+        setTimeout(() => this.computerPlayCard(gameId), delay);
       }
 
       return savedGame;
@@ -621,17 +729,9 @@ export class GameService implements OnModuleInit {
         throw new NotFoundException(`Game with ID ${gameId} not found`);
       }
 
-      // Calculate team scores from completed tricks
-      let northSouthPoints = 0;
-      let eastWestPoints = 0;
-
-      for (const trick of game.gameState.completedTricks) {
-        if (trick.winner === 'north' || trick.winner === 'south') {
-          northSouthPoints += trick.points;
-        } else {
-          eastWestPoints += trick.points;
-        }
-      }
+      // Use pre-calculated points from lastHandResult
+      const northSouthPoints = game.lastHandResult?.northSouthPoints || 0;
+      const eastWestPoints = game.lastHandResult?.eastWestPoints || 0;
 
       game.northSouthScore += northSouthPoints;
       game.eastWestScore += eastWestPoints;
@@ -643,13 +743,14 @@ export class GameService implements OnModuleInit {
         this.cleanupAIPlayers(gameId);
       } else {
         // Start new hand
-        game.state = GameState.NEW;
+        game.state = GameState.SHOWSCORE;
         game.dealer = this.getNextPlayer(game.dealer);
         game.highBid = null;
         game.highBidder = null;
         game.trumpSuit = null;
         game.currentBidder = null;
         game.gameState = this.initializeGameState();
+        game.scoringReady = { north: false, east: false, south: false, west: false }; // Reset scoring ready for next hand
       }
 
       const savedGame = await queryRunner.manager.save(game);
@@ -666,6 +767,59 @@ export class GameService implements OnModuleInit {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  async setScoringReady(gameId: string, player: PlayerPosition): Promise<{ 
+    game: Game; 
+    allHumansReady: boolean;
+    gameComplete: boolean;
+    winningTeam: 'northSouth' | 'eastWest' | null;
+  }> {
+    const game = await this.gameRepository.findOne({ 
+      where: { id: gameId },
+      relations: ['table', 'table.northPlayer', 'table.southPlayer', 'table.eastPlayer', 'table.westPlayer']
+    });
+
+    if (!game) {
+      throw new NotFoundException(`Game with ID ${gameId} not found`);
+    }
+
+    if (game.state !== GameState.SHOWSCORE) {
+      throw new BadRequestException('Game must be in SHOWSCORE state');
+    }
+
+    // Initialize scoringReady if not exists
+    if (!game.scoringReady) {
+      game.scoringReady = { north: false, east: false, south: false, west: false };
+    }
+
+    // Set player as ready
+    game.scoringReady[player] = true;
+
+    // Computer players are automatically ready
+    const positions: PlayerPosition[] = ['north', 'east', 'south', 'west'];
+    for (const pos of positions) {
+      if (game.playerTypes[pos] === 'computer') {
+        game.scoringReady[pos] = true;
+      }
+    }
+
+    await this.gameRepository.save(game);
+
+    // Check if all human players are ready
+    const allHumansReady = positions.every(pos => 
+      game.playerTypes[pos] === 'computer' || game.scoringReady[pos] === true
+    );
+
+    // Check if either team has reached 500 points
+    const gameComplete = game.northSouthScore >= 500 || game.eastWestScore >= 500;
+    let winningTeam: 'northSouth' | 'eastWest' | null = null;
+    
+    if (gameComplete) {
+      winningTeam = game.northSouthScore >= game.eastWestScore ? 'northSouth' : 'eastWest';
+    }
+
+    return { game, allHumansReady, gameComplete, winningTeam };
   }
 
   // Helper methods
@@ -688,6 +842,7 @@ export class GameService implements OnModuleInit {
       },
       completedTricks: [],
       biddingHistory: [],
+      discardedCards: [],
     };
   }
 
@@ -780,6 +935,23 @@ export class GameService implements OnModuleInit {
     const order: PlayerPosition[] = ['south', 'west', 'north', 'east'];
     const startIndex = order.indexOf(startPlayer);
     return [...order.slice(startIndex), ...order.slice(0, startIndex)];
+  }
+
+  private getNextActiveBidder(currentPlayer: PlayerPosition, passedPlayers: Set<PlayerPosition>): PlayerPosition {
+    const order: PlayerPosition[] = ['south', 'west', 'north', 'east'];
+    const currentIndex = order.indexOf(currentPlayer);
+    
+    // Try up to 4 times to find next active player
+    for (let i = 1; i <= 4; i++) {
+      const nextIndex = (currentIndex + i) % 4;
+      const nextPlayer = order[nextIndex];
+      if (!passedPlayers.has(nextPlayer)) {
+        return nextPlayer;
+      }
+    }
+    
+    // If all have passed, return next player anyway (shouldn't happen in normal flow)
+    return this.getNextPlayer(currentPlayer);
   }
 
   private determineTrickWinner(trick: GameStateData['currentTrick'], trumpSuit: Suit): PlayerPosition {
@@ -917,9 +1089,28 @@ export class GameService implements OnModuleInit {
 
     // Normal suit following rules
     if (leadSuit) {
-      const hasLeadSuit = hand.some(c => c.color === leadSuit);
-      if (hasLeadSuit && card.color !== leadSuit) {
-        throw new BadRequestException(`Must follow suit (${leadSuit})`);
+      // If lead suit is the trump suit, bird and red 1 are also valid plays
+      if (leadSuit === trumpSuit) {
+        const hasTrumpCards = hand.some(c => 
+          c.color === trumpSuit || 
+          c.color === 'bird' || 
+          (c.color === 'red' && c.value === 1)
+        );
+        
+        if (hasTrumpCards) {
+          const isValidTrump = card.color === trumpSuit || 
+                               card.color === 'bird' || 
+                               (card.color === 'red' && card.value === 1);
+          if (!isValidTrump) {
+            throw new BadRequestException(`Must follow trump suit (${trumpSuit})`);
+          }
+        }
+      } else {
+        // Regular suit following (not trump)
+        const hasLeadSuit = hand.some(c => c.color === leadSuit);
+        if (hasLeadSuit && card.color !== leadSuit) {
+          throw new BadRequestException(`Must follow suit (${leadSuit})`);
+        }
       }
     }
   }

@@ -99,6 +99,20 @@ export class SocketService implements OnDestroy {
     this.socket.emit('declareTrump', { gameId, player, trumpSuit });
   }
 
+  startNextHand(gameId: string) {
+    if (!this.socket) {
+      throw new Error('Socket not connected');
+    }
+    this.socket.emit('startNextHand', { gameId });
+  }
+
+  scoringReady(gameId: string, player: string) {
+    if (!this.socket) {
+      throw new Error('Socket not connected');
+    }
+    this.socket.emit('scoringReady', { gameId, player });
+  }
+
   playCard(gameId: string, player: string, cardId: string) {
     if (!this.socket) {
       throw new Error('Socket not connected');

@@ -81,6 +81,123 @@
   }
 }
 
+.scoring-popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.scoring-popup {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  padding: 32px 40px;
+  min-width: 450px;
+  max-width: 600px;
+  animation: popupSlideIn 0.3s ease-out;
+
+  h3 {
+    margin: 0 0 20px 0;
+    color: #333;
+    font-size: 28px;
+    text-align: center;
+    font-weight: 700;
+  }
+
+  .bid-result {
+    text-align: center;
+    font-size: 18px;
+    margin-bottom: 30px;
+    padding: 16px;
+    border-radius: 8px;
+    line-height: 1.5;
+
+    strong {
+      font-weight: 700;
+    }
+
+    &.success {
+      background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+      color: #155724;
+      border: 2px solid #c3e6cb;
+    }
+
+    &.failure {
+      background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+      color: #721c24;
+      border: 2px solid #f5c6cb;
+    }
+  }
+
+  .hand-points {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 30px;
+
+    .team-points {
+      background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+      padding: 20px;
+      border-radius: 12px;
+      text-align: center;
+      border: 2px solid #dee2e6;
+
+      h4 {
+        margin: 0 0 12px 0;
+        color: #495057;
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .points {
+        margin: 0;
+        font-size: 32px;
+        font-weight: 700;
+        color: #667eea;
+      }
+    }
+  }
+
+  .btn-close-popup {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    }
+
+    &:active {
+      transform: translateY(0);
+    }
+  }
+}
+
+@keyframes popupSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 .content {
   flex: 1;
   overflow: hidden;
@@ -519,6 +636,127 @@
           box-shadow: 0 6px 16px rgba(255, 215, 0, 0.4);
         }
       }
+    }
+  }
+}
+
+// Winner Popup Styles
+.winner-popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.winner-popup {
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  border-radius: 20px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  padding: 40px;
+  max-width: 500px;
+  width: 90%;
+  text-align: center;
+  animation: slideUp 0.4s ease-out;
+
+  h2 {
+    margin: 0 0 30px 0;
+    color: #ffd700;
+    font-size: 32px;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  .winner-announcement {
+    margin-bottom: 30px;
+    padding: 20px;
+    background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(255, 215, 0, 0.3);
+
+    h3 {
+      margin: 0 0 10px 0;
+      font-size: 28px;
+      color: #333;
+      font-weight: bold;
+    }
+
+    .winner-text {
+      margin: 0;
+      font-size: 20px;
+      color: #555;
+      font-weight: 600;
+    }
+  }
+
+  .final-scores {
+    margin: 20px 0 30px 0;
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+
+    .score-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #eee;
+
+      &:last-child {
+        border-bottom: none;
+      }
+
+      &.winner {
+        .team-name {
+          color: #28a745;
+          font-weight: bold;
+        }
+
+        .score {
+          color: #28a745;
+          font-weight: bold;
+          font-size: 20px;
+        }
+      }
+
+      .team-name {
+        font-size: 16px;
+        color: #333;
+      }
+
+      .score {
+        font-size: 18px;
+        color: #666;
+        font-weight: 600;
+      }
+    }
+  }
+
+  .btn-close-popup {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 14px 40px;
+    font-size: 18px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5);
+    }
+
+    &:active {
+      transform: translateY(0);
     }
   }
 }
