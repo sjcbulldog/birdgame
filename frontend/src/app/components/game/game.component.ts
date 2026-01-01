@@ -1525,6 +1525,9 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     
     // Draw username
     const playerName = this.game.playerNames?.[this.myPosition] || this.myPosition;
+    const displayText = this.currentUser?.userType === 'admin' && this.myPosition
+      ? `${playerName} (${this.myPosition})` 
+      : playerName;
     this.ctx.font = isDealer ? 'bold 14px Arial' : '13px Arial';
     this.ctx.fillStyle = isDealer ? '#ffa500' : '#ffffff';
     this.ctx.textAlign = 'center';
@@ -1533,7 +1536,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     this.ctx.shadowBlur = 3;
     this.ctx.shadowOffsetX = 1;
     this.ctx.shadowOffsetY = 1;
-    this.ctx.fillText(playerName, iconX + iconSize / 2, iconY + iconSize + 5);
+    this.ctx.fillText(displayText, iconX + iconSize / 2, iconY + iconSize + 5);
     
     // Reset shadow
     this.ctx.shadowColor = 'transparent';
@@ -1661,7 +1664,12 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       this.ctx.shadowBlur = 3;
       this.ctx.shadowOffsetX = 1;
       this.ctx.shadowOffsetY = 1;
-      this.ctx.fillText(playerName, iconX + iconSize / 2, iconY + iconSize + 5);
+      
+      // Add position in parentheses if current user is admin
+      const displayText = this.currentUser?.userType === 'admin' 
+        ? `${playerName} (${backendPos})` 
+        : playerName;
+      this.ctx.fillText(displayText, iconX + iconSize / 2, iconY + iconSize + 5);
       
       // Reset shadow
       this.ctx.shadowColor = 'transparent';
