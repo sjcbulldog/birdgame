@@ -106,8 +106,6 @@ export class HeartbeatService {
    */
   private async checkForOrphanedTableUsers(): Promise<void> {
     try {
-      this.logger.debug('Checking for orphaned table users...');
-      
       // Get set of currently logged-in users (those with active heartbeats)
       const loggedInUsers = new Set(this.heartbeats.keys());
       
@@ -121,19 +119,19 @@ export class HeartbeatService {
         // Check all positions
         if (table.positions.north?.id && !loggedInUsers.has(table.positions.north.id)) {
           usersToRemove.add(table.positions.north.id);
-          this.logger.warn(`Found orphaned user at table ${table.tableNumber} north position: ${table.positions.north.id}`);
+          this.logger.log(`Found orphaned user at table ${table.tableNumber} north position: ${table.positions.north.id}`);
         }
         if (table.positions.south?.id && !loggedInUsers.has(table.positions.south.id)) {
           usersToRemove.add(table.positions.south.id);
-          this.logger.warn(`Found orphaned user at table ${table.tableNumber} south position: ${table.positions.south.id}`);
+          this.logger.log(`Found orphaned user at table ${table.tableNumber} south position: ${table.positions.south.id}`);
         }
         if (table.positions.east?.id && !loggedInUsers.has(table.positions.east.id)) {
           usersToRemove.add(table.positions.east.id);
-          this.logger.warn(`Found orphaned user at table ${table.tableNumber} east position: ${table.positions.east.id}`);
+          this.logger.log(`Found orphaned user at table ${table.tableNumber} east position: ${table.positions.east.id}`);
         }
         if (table.positions.west?.id && !loggedInUsers.has(table.positions.west.id)) {
           usersToRemove.add(table.positions.west.id);
-          this.logger.warn(`Found orphaned user at table ${table.tableNumber} west position: ${table.positions.west.id}`);
+          this.logger.log(`Found orphaned user at table ${table.tableNumber} west position: ${table.positions.west.id}`);
         }
         
         // Check watchers

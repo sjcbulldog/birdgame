@@ -21,6 +21,8 @@ export interface Table {
   activeGameId?: string;
   watchers?: Player[];
   playerTypes?: Record<string, 'human' | 'computer'>;
+  gameState?: string;
+  playerNames?: Record<string, string>;
 }
 
 export type Position = 'north' | 'south' | 'east' | 'west';

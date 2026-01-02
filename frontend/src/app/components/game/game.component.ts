@@ -251,9 +251,6 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
             completedTricksCount > this.lastCompletedTrickCount) {
           const lastCompletedTrick = game.gameState.completedTricks[completedTricksCount - 1];
           
-          console.log(`%cTRICK COMPLETED: ${lastCompletedTrick.cards.length} cards`, 'color: #ff00ff; font-weight: bold;');
-          console.log('Trick cards:', lastCompletedTrick.cards.map((c: any) => `${c.player}: ${c.card.color} ${c.card.value}`).join(', '));
-          
           // Clear any existing animation
           this.animatingTrickToWonPile = null;
           
@@ -2507,15 +2504,10 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     if (this.animatingTrickToWonPile) {
       cardsToRender = this.animatingTrickToWonPile.cards;
       isAnimatingToWonPile = true;
-      console.log(`Rendering animating trick: ${cardsToRender.length} cards`);
     } else if (this.displayingCompletedTrick) {
       cardsToRender = this.displayingCompletedTrick.cards;
-      console.log(`Rendering completed trick display: ${cardsToRender.length} cards`);
     } else {
       cardsToRender = this.game.gameState.currentTrick.cards;
-      if (cardsToRender.length > 0) {
-        console.log(`Rendering current trick: ${cardsToRender.length} cards`);
-      }
     }
 
     if (!cardsToRender || cardsToRender.length === 0) {

@@ -10,7 +10,7 @@
 
   <nav class="navbar">
     <div class="nav-content">
-      <h1>Birds Application</h1>
+      <h1>For The Birds</h1>
       <div class="nav-actions">
         @if (currentUser) {
           <span class="user-info">
@@ -46,13 +46,13 @@
             
             <!-- North Position -->
             <div class="position position-north" 
-                 [class.empty]="!table.positions.north"
-                 [class.occupied]="!!table.positions.north"
-                 [title]="table.positions.north?.username || ''"
+                 [class.empty]="!hasPlayerAtPosition(table, 'north')"
+                 [class.occupied]="hasPlayerAtPosition(table, 'north')"
+                 [title]="getPlayerName(table, 'north')"
                  (click)="onPositionClick(table.id, 'north', !!table.positions.north); $event.stopPropagation()">
-              @if (table.positions.north) {
+              @if (hasPlayerAtPosition(table, 'north')) {
                 <img [src]="isComputerPlayer(table, 'north') ? '/images/computer.png' : '/api/images/user.png'" alt="North player" />
-                <span class="player-name player-name-left">{{ table.positions.north.username }}</span>
+                <span class="player-name player-name-left">{{ getPlayerName(table, 'north') }}</span>
               } @else {
                 <img src="/api/images/frame.png" alt="Empty seat" />
               }
@@ -60,13 +60,13 @@
 
             <!-- South Position -->
             <div class="position position-south" 
-                 [class.empty]="!table.positions.south"
-                 [class.occupied]="!!table.positions.south"
-                 [title]="table.positions.south?.username || ''"
+                 [class.empty]="!hasPlayerAtPosition(table, 'south')"
+                 [class.occupied]="hasPlayerAtPosition(table, 'south')"
+                 [title]="getPlayerName(table, 'south')"
                  (click)="onPositionClick(table.id, 'south', !!table.positions.south); $event.stopPropagation()">
-              @if (table.positions.south) {
+              @if (hasPlayerAtPosition(table, 'south')) {
                 <img [src]="isComputerPlayer(table, 'south') ? '/images/computer.png' : '/api/images/user.png'" alt="South player" />
-                <span class="player-name player-name-right">{{ table.positions.south.username }}</span>
+                <span class="player-name player-name-right">{{ getPlayerName(table, 'south') }}</span>
               } @else {
                 <img src="/api/images/frame.png" alt="Empty seat" />
               }
@@ -74,13 +74,13 @@
 
             <!-- East Position -->
             <div class="position position-east" 
-                 [class.empty]="!table.positions.east"
-                 [class.occupied]="!!table.positions.east"
-                 [title]="table.positions.east?.username || ''"
+                 [class.empty]="!hasPlayerAtPosition(table, 'east')"
+                 [class.occupied]="hasPlayerAtPosition(table, 'east')"
+                 [title]="getPlayerName(table, 'east')"
                  (click)="onPositionClick(table.id, 'east', !!table.positions.east); $event.stopPropagation()">
-              @if (table.positions.east) {
+              @if (hasPlayerAtPosition(table, 'east')) {
                 <img [src]="isComputerPlayer(table, 'east') ? '/images/computer.png' : '/api/images/user.png'" alt="East player" />
-                <span class="player-name player-name-below">{{ table.positions.east.username }}</span>
+                <span class="player-name player-name-below">{{ getPlayerName(table, 'east') }}</span>
               } @else {
                 <img src="/api/images/frame.png" alt="Empty seat" />
               }
@@ -88,13 +88,13 @@
 
             <!-- West Position -->
             <div class="position position-west" 
-                 [class.empty]="!table.positions.west"
-                 [class.occupied]="!!table.positions.west"
-                 [title]="table.positions.west?.username || ''"
+                 [class.empty]="!hasPlayerAtPosition(table, 'west')"
+                 [class.occupied]="hasPlayerAtPosition(table, 'west')"
+                 [title]="getPlayerName(table, 'west')"
                  (click)="onPositionClick(table.id, 'west', !!table.positions.west); $event.stopPropagation()">
-              @if (table.positions.west) {
+              @if (hasPlayerAtPosition(table, 'west')) {
                 <img [src]="isComputerPlayer(table, 'west') ? '/images/computer.png' : '/api/images/user.png'" alt="West player" />
-                <span class="player-name player-name-below">{{ table.positions.west.username }}</span>
+                <span class="player-name player-name-below">{{ getPlayerName(table, 'west') }}</span>
               } @else {
                 <img src="/api/images/frame.png" alt="Empty seat" />
               }

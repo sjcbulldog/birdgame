@@ -20,4 +20,6 @@ export class TableResponseDto {
   activeGameId?: string;
   watchers?: PlayerDto[];
   playerTypes?: Record<string, 'human' | 'computer'>;
+  gameState?: string;
+  playerNames?: Record<string, string>;
 }

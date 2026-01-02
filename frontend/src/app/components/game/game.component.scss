@@ -408,9 +408,9 @@
 }
 .bidding-panel {
   position: fixed;
-  top: 60%;
+  bottom: calc(((100vh - 80px - 20px) - 716px) / 2 + 111px + 22px);
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(calc(-50% + 20px));
   background: white;
   border-radius: 12px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);

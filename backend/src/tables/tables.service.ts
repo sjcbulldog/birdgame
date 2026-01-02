@@ -4,6 +4,7 @@ import { Repository, IsNull } from 'typeorm';
 import { Table } from './entities/table.entity';
 import { TableWatcher } from './entities/table-watcher.entity';
 import { SitePreferences } from './entities/site-preferences.entity';
+import { User } from '../users/user.entity';
 import { Position } from './types/position.type';
 import { TableResponseDto, PlayerDto } from './dto/table-response.dto';
 import { GameService } from '../game/game.service';
@@ -89,8 +90,10 @@ export class TablesService implements OnModuleInit {
       const activeGame = await this.gameService.getGameByTableId(table.id);
       const activeGameId = activeGame && activeGame.state !== 'complete' ? activeGame.id : undefined;
 
-      // Include playerTypes if there's an active game
+      // Include playerTypes, gameState, and playerNames if there's an active game
       const playerTypes = activeGame && activeGame.state !== 'complete' ? activeGame.playerTypes : undefined;
+      const gameState = activeGame && activeGame.state !== 'complete' ? activeGame.state : undefined;
+      const playerNames = activeGame && activeGame.state !== 'complete' ? activeGame.playerNames : undefined;
 
       tableDtos.push({
         id: table.id,
@@ -105,6 +108,8 @@ export class TablesService implements OnModuleInit {
         activeGameId,
         watchers: watchers.map(w => this.mapPlayerDto(w.user)),
         playerTypes,
+        gameState,
+        playerNames,
       });
     }
 
@@ -176,6 +181,21 @@ export class TablesService implements OnModuleInit {
       // Commit the transaction
       await queryRunner.commitTransaction();
 
+      // Check if there's a game in 'new' state and replace computer with human
+      try {
+        const game = await this.gameService.getCurrentGameForTable(tableId);
+        if (game && game.state === 'new') {
+          // Get user details for the username
+          const user = await queryRunner.manager.findOne(User, { where: { id: userId } });
+          if (user) {
+            await this.gameService.replaceComputerWithHuman(game.id, position as any, user.username);
+          }
+        }
+      } catch (error) {
+        console.error('Error replacing computer with human:', error);
+        // Don't fail the join operation if this fails
+      }
+
       // Ensure minimum empty tables (outside transaction)
       await this.ensureMinimumEmptyTables(3);
 
@@ -203,27 +223,34 @@ export class TablesService implements OnModuleInit {
       throw new BadRequestException('Table not found');
     }
 
+    // Determine which position the user is leaving
+    let leavingPosition: Position | null = null;
+    
     // Remove user from position (set both ID and relation to null)
     let positionRemoved = false;
     if (table.northPlayerId === userId) {
       table.northPlayerId = null;
       table.northPlayer = null;
       positionRemoved = true;
+      leavingPosition = 'north';
     }
     if (table.southPlayerId === userId) {
       table.southPlayerId = null;
       table.southPlayer = null;
       positionRemoved = true;
+      leavingPosition = 'south';
     }
     if (table.eastPlayerId === userId) {
       table.eastPlayerId = null;
       table.eastPlayer = null;
       positionRemoved = true;
+      leavingPosition = 'east';
     }
     if (table.westPlayerId === userId) {
       table.westPlayerId = null;
       table.westPlayer = null;
       positionRemoved = true;
+      leavingPosition = 'west';
     }
 
     if (!positionRemoved) {
@@ -232,22 +259,40 @@ export class TablesService implements OnModuleInit {
 
     await this.tableRepository.save(table);
 
-    // Check if there's a game for this table and delete it if no human players remain
+    // Check if there's a game for this table
     try {
       const game = await this.gameService.getCurrentGameForTable(tableId);
       if (game) {
-        // Check if all human players have left
-        const hasHumanPlayers = 
-          (table.northPlayerId && game.playerTypes.north === 'human') ||
-          (table.southPlayerId && game.playerTypes.south === 'human') ||
-          (table.eastPlayerId && game.playerTypes.east === 'human') ||
-          (table.westPlayerId && game.playerTypes.west === 'human');
+        if (game.state === 'new' && leavingPosition) {
+          // Check if this is the last human player
+          const humanPlayerCount = 
+            (table.northPlayerId && game.playerTypes.north === 'human' ? 1 : 0) +
+            (table.southPlayerId && game.playerTypes.south === 'human' ? 1 : 0) +
+            (table.eastPlayerId && game.playerTypes.east === 'human' ? 1 : 0) +
+            (table.westPlayerId && game.playerTypes.west === 'human' ? 1 : 0);
+          
+          if (humanPlayerCount === 0) {
+            // No human players left, delete the game
+            await this.gameService.deleteGame(game.id);
+          } else {
+            // Replace human with computer in 'new' state
+            await this.gameService.replaceHumanWithComputer(game.id, leavingPosition as any);
+          }
+        } else {
+          // Check if all human players have left in other states
+          const hasHumanPlayers = 
+            (table.northPlayerId && game.playerTypes.north === 'human') ||
+            (table.southPlayerId && game.playerTypes.south === 'human') ||
+            (table.eastPlayerId && game.playerTypes.east === 'human') ||
+            (table.westPlayerId && game.playerTypes.west === 'human');
 
-        if (!hasHumanPlayers) {
-          await this.gameService.deleteGame(game.id);
+          if (!hasHumanPlayers) {
+            await this.gameService.deleteGame(game.id);
+          }
         }
       }
     } catch (error) {
+      console.error('Error handling game when player left:', error);
       // Game might not exist, that's ok
     }
 

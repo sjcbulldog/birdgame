@@ -10,6 +10,7 @@ import { Server, Socket } from 'socket.io';
 import { GameService } from './game.service';
 import { PlayerPosition, Suit } from './entities/game.entity';
 import { HeartbeatService } from '../gateway/heartbeat.service';
+import { TablesGateway } from '../gateway/tables.gateway';
 
 @WebSocketGateway({ cors: true })
 export class GameGateway implements OnModuleInit {
@@ -20,6 +21,8 @@ export class GameGateway implements OnModuleInit {
     private readonly gameService: GameService,
     @Inject(forwardRef(() => HeartbeatService))
     private readonly heartbeatService: HeartbeatService,
+    @Inject(forwardRef(() => TablesGateway))
+    private readonly tablesGateway: TablesGateway,
   ) {}
 
   onModuleInit() {
@@ -70,6 +73,8 @@ export class GameGateway implements OnModuleInit {
     if (allReady) {
       const startedGame = await this.gameService.startDealing(data.gameId);
       await this.emitGameUpdate(data.gameId);
+      // Update all home screens with the new game state
+      this.tablesGateway.emitTableUpdate();
     }
 
     return { event: 'playerReady', data: { allReady } };
@@ -174,6 +179,8 @@ export class GameGateway implements OnModuleInit {
     // Emit globally to all connected clients
     // The frontend will handle navigation for players at this table
     this.server.emit('gameStarted', { tableId, gameId });
+    // Also update all home screens with the new game state
+    this.tablesGateway.emitTableUpdate();
   }
 
   private personalizeGameState(game: any, forPlayer: PlayerPosition) {
