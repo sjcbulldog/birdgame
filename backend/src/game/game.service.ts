@@ -392,6 +392,29 @@ export class GameService implements OnModuleInit {
         if (game.highBidder !== partner) {
           throw new BadRequestException('Can only check if partner is high bidder');
         }
+        
+        // Check if both opponents have passed
+        // If so, player cannot check again - they must bid or pass
+        const opponents: PlayerPosition[] = (['north', 'south', 'east', 'west'] as PlayerPosition[])
+          .filter(p => p !== player && p !== partner);
+        
+        // Count consecutive passes since the last check
+        let passCount = 0;
+        for (let i = game.gameState.biddingHistory.length - 1; i >= 0; i--) {
+          const entry = game.gameState.biddingHistory[i];
+          if (entry.bid === 'check' && entry.player === player) {
+            break; // Stop at player's previous check
+          }
+          if (entry.bid === 'pass' && opponents.includes(entry.player)) {
+            passCount++;
+          } else if (typeof entry.bid === 'number' || entry.bid === 'check') {
+            passCount = 0; // Reset if there's a real bid or check
+          }
+        }
+        
+        if (passCount >= 2) {
+          throw new BadRequestException('Cannot check again after both opponents passed. You must overbid your partner or pass.');
+        }
       }
 
       // Record bid in history
@@ -1271,6 +1294,7 @@ export class GameService implements OnModuleInit {
         }
       } else {
         // Regular suit following (not trump)
+        // Note: red 1 is always trump, never red (unless red is the trump suit)
         const hasLeadSuit = hand.some(c => c.color === leadSuit);
         if (hasLeadSuit && card.color !== leadSuit) {
           throw new BadRequestException(`Must follow suit (${leadSuit})`);

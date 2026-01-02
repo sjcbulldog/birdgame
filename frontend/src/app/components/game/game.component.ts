@@ -93,6 +93,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   game?: ServerGameState;
   gameId?: string;
   myPosition?: string; // north, east, south, west - the user's backend position
+  isWatcherMode = false; // true if user is watching, not playing
   playerReadyState: Record<string, boolean> = {};
   isWaitingForPlayers = false;
   private previousGameState?: string;
@@ -373,7 +374,19 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     
     this.loadCardImage();
 
-    // Get game ID from route
+    // Check if this is a watch route
+    if (this.router.url.includes('/watch/')) {
+      this.isWatcherMode = true;
+    }
+
+    // Check query params for watcher mode
+    this.route.queryParams.subscribe(queryParams => {
+      if (queryParams['watch'] === 'true') {
+        this.isWatcherMode = true;
+      }
+    });
+
+    // Get game ID and watcher mode from route
     this.route.params.subscribe(params => {
       this.gameId = params['gameId'];
       if (this.gameId) {
@@ -400,6 +413,12 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
                 
                 // Join the game via socket
                 this.socketService.joinGame(this.gameId!, this.myPosition);
+              } else {
+                // User is not at table, must be watcher
+                this.isWatcherMode = true;
+                this.myPosition = 'south'; // Default position for display purposes
+                this.updatePositionMapping();
+                this.socketService.emit('joinGame', { gameId: this.gameId, player: 'watcher' });
               }
             }
             
@@ -926,65 +945,67 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       }
     });
 
-    // Draw start button in center with modern styling
-    const buttonWidth = 220;
-    const buttonHeight = 65;
-    const buttonX = this.TABLE_WIDTH / 2 - buttonWidth / 2;
-    const buttonY = this.TABLE_HEIGHT / 2 - buttonHeight / 2;
-    const borderRadius = 12;
+    // Draw start button in center with modern styling (only for players, not watchers)
+    if (!this.isWatcherMode) {
+      const buttonWidth = 220;
+      const buttonHeight = 65;
+      const buttonX = this.TABLE_WIDTH / 2 - buttonWidth / 2;
+      const buttonY = this.TABLE_HEIGHT / 2 - buttonHeight / 2;
+      const borderRadius = 12;
 
-    // Start button with gradient and shadow
-    this.ctx!.save();
-    
-    // Shadow
-    this.ctx!.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    this.ctx!.shadowBlur = 15;
-    this.ctx!.shadowOffsetX = 0;
-    this.ctx!.shadowOffsetY = 4;
+      // Start button with gradient and shadow
+      this.ctx!.save();
+      
+      // Shadow
+      this.ctx!.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      this.ctx!.shadowBlur = 15;
+      this.ctx!.shadowOffsetX = 0;
+      this.ctx!.shadowOffsetY = 4;
 
-    // Rounded rectangle helper
-    const roundRect = (x: number, y: number, width: number, height: number, radius: number) => {
-      this.ctx!.beginPath();
-      this.ctx!.moveTo(x + radius, y);
-      this.ctx!.lineTo(x + width - radius, y);
-      this.ctx!.quadraticCurveTo(x + width, y, x + width, y + radius);
-      this.ctx!.lineTo(x + width, y + height - radius);
-      this.ctx!.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-      this.ctx!.lineTo(x + radius, y + height);
-      this.ctx!.quadraticCurveTo(x, y + height, x, y + height - radius);
-      this.ctx!.lineTo(x, y + radius);
-      this.ctx!.quadraticCurveTo(x, y, x + radius, y);
-      this.ctx!.closePath();
-    };
+      // Rounded rectangle helper
+      const roundRect = (x: number, y: number, width: number, height: number, radius: number) => {
+        this.ctx!.beginPath();
+        this.ctx!.moveTo(x + radius, y);
+        this.ctx!.lineTo(x + width - radius, y);
+        this.ctx!.quadraticCurveTo(x + width, y, x + width, y + radius);
+        this.ctx!.lineTo(x + width, y + height - radius);
+        this.ctx!.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        this.ctx!.lineTo(x + radius, y + height);
+        this.ctx!.quadraticCurveTo(x, y + height, x, y + height - radius);
+        this.ctx!.lineTo(x, y + radius);
+        this.ctx!.quadraticCurveTo(x, y, x + radius, y);
+        this.ctx!.closePath();
+      };
 
-    // Start button background with gradient
-    const startGradient = this.ctx!.createLinearGradient(buttonX, buttonY, buttonX, buttonY + buttonHeight);
-    if (this.isWaitingForPlayers) {
-      startGradient.addColorStop(0, '#FFD54F');
-      startGradient.addColorStop(1, '#FFA726');
-    } else {
-      startGradient.addColorStop(0, '#42A5F5');
-      startGradient.addColorStop(1, '#1976D2');
+      // Start button background with gradient
+      const startGradient = this.ctx!.createLinearGradient(buttonX, buttonY, buttonX, buttonY + buttonHeight);
+      if (this.isWaitingForPlayers) {
+        startGradient.addColorStop(0, '#FFD54F');
+        startGradient.addColorStop(1, '#FFA726');
+      } else {
+        startGradient.addColorStop(0, '#42A5F5');
+        startGradient.addColorStop(1, '#1976D2');
+      }
+      
+      roundRect(buttonX, buttonY, buttonWidth, buttonHeight, borderRadius);
+      this.ctx!.fillStyle = startGradient;
+      this.ctx!.fill();
+
+      this.ctx!.restore();
+
+      // Button text with better typography
+      this.ctx!.fillStyle = '#ffffff';
+      this.ctx!.font = 'bold 20px Arial';
+      this.ctx!.textAlign = 'center';
+      this.ctx!.textBaseline = 'middle';
+      this.ctx!.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      this.ctx!.shadowBlur = 3;
+      this.ctx!.shadowOffsetX = 0;
+      this.ctx!.shadowOffsetY = 1;
+      const buttonText = this.isWaitingForPlayers ? 'Waiting...' : 'Start Game';
+      this.ctx!.fillText(buttonText, this.TABLE_WIDTH / 2, this.TABLE_HEIGHT / 2);
+      this.ctx!.shadowColor = 'transparent';
     }
-    
-    roundRect(buttonX, buttonY, buttonWidth, buttonHeight, borderRadius);
-    this.ctx!.fillStyle = startGradient;
-    this.ctx!.fill();
-
-    this.ctx!.restore();
-
-    // Button text with better typography
-    this.ctx!.fillStyle = '#ffffff';
-    this.ctx!.font = 'bold 20px Arial';
-    this.ctx!.textAlign = 'center';
-    this.ctx!.textBaseline = 'middle';
-    this.ctx!.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    this.ctx!.shadowBlur = 3;
-    this.ctx!.shadowOffsetX = 0;
-    this.ctx!.shadowOffsetY = 1;
-    const buttonText = this.isWaitingForPlayers ? 'Waiting...' : 'Start Game';
-    this.ctx!.fillText(buttonText, this.TABLE_WIDTH / 2, this.TABLE_HEIGHT / 2);
-    this.ctx!.shadowColor = 'transparent';
   }
 
   private renderDealingAnimation(): void {
@@ -1146,7 +1167,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       } else {
         const backendPos = destination as 'south' | 'west' | 'north' | 'east';
         const cardIndex = cardCounts[backendPos];
-        const isCurrentUser = backendPos === this.myPosition;
+        const isCurrentUser = backendPos === this.myPosition && !this.isWatcherMode;
         const displayPos = this.getDisplayPosition(backendPos);
         
         // For current user (displayed at bottom), use progressive sorting
@@ -1196,8 +1217,14 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       // Draw card
       let sourceX: number;
       if (isFaceUp && t === 1 && cardToRender) {
-        // Show actual card face for south and final centerPile card
-        sourceX = this.getCardSourceX(cardToRender);
+        // Show actual card face for:
+        // 1. Center pile face-up card (always shown, even in watcher mode)
+        // 2. Current user's cards (only if not in watcher mode)
+        if (isCenterPile || !this.isWatcherMode) {
+          sourceX = this.getCardSourceX(cardToRender);
+        } else {
+          sourceX = 57 * this.CARD_WIDTH_SOURCE; // Card back for watcher
+        }
       } else {
         sourceX = 57 * this.CARD_WIDTH_SOURCE; // Card back
       }
@@ -1252,6 +1279,25 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     }
     
     this.tableService.leaveTable(this.game.table.id).subscribe({
+      next: () => {
+        this.router.navigate(['/home']);
+      },
+      error: (error) => {
+        console.error('Error leaving table:', error);
+        this.router.navigate(['/home']);
+      }
+    });
+  }
+
+  confirmLeaveWatch(): void {
+    this.showLeaveTableDialog = false;
+    
+    if (!this.game || !this.game.table || !this.game.table.id) {
+      this.router.navigate(['/home']);
+      return;
+    }
+    
+    this.tableService.unwatchTable(this.game.table.id).subscribe({
       next: () => {
         this.router.navigate(['/home']);
       },
@@ -1339,7 +1385,28 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   canCheck(): boolean {
     if (!this.canBid() || !this.game?.highBidder || !this.myPosition) return false;
     const partner = this.getPartner(this.myPosition);
-    return this.game.highBidder === partner;
+    if (this.game.highBidder !== partner) return false;
+    
+    // Check if both opponents have passed since the last check
+    const opponents: string[] = ['north', 'south', 'east', 'west']
+      .filter(p => p !== this.myPosition && p !== partner);
+    
+    // Count consecutive passes since the last check
+    let passCount = 0;
+    for (let i = this.game.gameState.biddingHistory.length - 1; i >= 0; i--) {
+      const entry = this.game.gameState.biddingHistory[i];
+      if (entry.bid === 'check' && entry.player === this.myPosition) {
+        break; // Stop at player's previous check
+      }
+      if (entry.bid === 'pass' && opponents.includes(entry.player)) {
+        passCount++;
+      } else if (typeof entry.bid === 'number' || entry.bid === 'check') {
+        passCount = 0; // Reset if there's a real bid or check
+      }
+    }
+    
+    // Cannot check if both opponents already passed
+    return passCount < 2;
   }
 
   getMinBid(): number {
@@ -1725,7 +1792,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!this.ctx || !this.cardImage || cards.length === 0) return;
 
     const displayPosition = this.getDisplayPosition(backendPosition);
-    const isMyHand = backendPosition === this.myPosition;
+    const isMyHand = backendPosition === this.myPosition && !this.isWatcherMode;
     const cardCount = cards.length;
     
     // Determine if this player is active (needs to play or bid)
@@ -1740,7 +1807,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       const isPlayingState = this.game?.state === 'playing';
       
       // Draw yellow rectangle around active player's hand
-      if (isActivePlayer) {
+      if (isActivePlayer && !this.isWatcherMode) {
         this.ctx.strokeStyle = '#FFD700';
         this.ctx.lineWidth = 4;
         this.ctx.strokeRect(
@@ -1753,7 +1820,8 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
 
       for (let i = 0; i < cardCount; i++) {
         const card = cards[i];
-        const sourceX = isMyHand && card.id ? this.getCardSourceX(card) : 57 * this.CARD_WIDTH_SOURCE; // Card back
+        // In watcher mode, all cards are face down. In normal mode, show face up only for current user's hand
+        const sourceX = (isMyHand && card.id) ? this.getCardSourceX(card) : 57 * this.CARD_WIDTH_SOURCE; // Card back
         
         // Offset selected card up by 1/4 card height in playing state
         const isSelected = isPlayingState && this.selectedCardForPlay === card.id;

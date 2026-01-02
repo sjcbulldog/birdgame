@@ -68,9 +68,17 @@ export class HomeComponent implements OnInit {
           player => player?.id === this.currentUser?.id
         );
         
-        // Only navigate if the current user is at this table
+        // Check if user is watching this table
+        const isWatchingTable = table.watchers?.some(
+          watcher => watcher.id === this.currentUser?.id
+        );
+        
+        // Navigate player to game
         if (isPlayerAtTable) {
           this.router.navigate(['/game', data.gameId]);
+        } else if (isWatchingTable) {
+          // Navigate watcher to watch mode
+          this.router.navigate(['/watch', data.gameId]);
         }
       }
     });

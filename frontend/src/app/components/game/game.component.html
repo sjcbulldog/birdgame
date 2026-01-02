@@ -8,7 +8,11 @@
       <div class="nav-actions">
         @if (currentUser) {
           <span class="user-info">
-            Welcome, {{ currentUser.username }}!
+            @if (isWatcherMode) {
+              {{ currentUser.username }} (Watching)
+            } @else {
+              Welcome, {{ currentUser.username }}!
+            }
           </span>
           <button class="btn-leave" (click)="onLeaveTable()">
             Leave
@@ -25,15 +29,15 @@
         [width]="1024" 
         [height]="819"
         class="card-canvas"
-        (click)="onCanvasClick($event)"
-        (contextmenu)="onCanvasRightClick($event)"
-        (mousemove)="onCanvasMouseMove($event)">
+        (click)="!isWatcherMode && onCanvasClick($event)"
+        (contextmenu)="!isWatcherMode && onCanvasRightClick($event)"
+        (mousemove)="!isWatcherMode && onCanvasMouseMove($event)">
       </canvas>
     </div>
   </div>
 
   <!-- Context Menu -->
-  @if (showContextMenu) {
+  @if (showContextMenu && !isWatcherMode) {
     <div class="context-menu" 
          [style.left.px]="contextMenuX" 
          [style.top.px]="contextMenuY"
@@ -48,7 +52,7 @@
   }
 
   <!-- Say Message Popup -->
-  @if (showSayMessagePopup) {
+  @if (showSayMessagePopup && !isWatcherMode) {
     <div class="dialog-overlay" (click)="cancelSayMessage()">
       <div class="dialog-content" (click)="$event.stopPropagation()">
         <h2>Say Something</h2>
@@ -93,7 +97,7 @@
   }
 
   <!-- Leave Table Confirmation Dialog -->
-  @if (showLeaveTableDialog) {
+  @if (showLeaveTableDialog && !isWatcherMode) {
     <div class="dialog-overlay" (click)="cancelLeaveTable()">
       <div class="dialog-content" (click)="$event.stopPropagation()">
         <h2>Leave Table</h2>
@@ -106,9 +110,23 @@
       </div>
     </div>
   }
+
+  <!-- Leave Watch Confirmation Dialog -->
+  @if (showLeaveTableDialog && isWatcherMode) {
+    <div class="dialog-overlay" (click)="cancelLeaveTable()">
+      <div class="dialog-content" (click)="$event.stopPropagation()">
+        <h2>Stop Watching</h2>
+        <p>Are you sure you want to stop watching this game?</p>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" (click)="cancelLeaveTable()">Cancel</button>
+          <button class="btn btn-logout" (click)="confirmLeaveWatch()">Stop Watching</button>
+        </div>
+      </div>
+    </div>
+  }
   
   <!-- Bidding UI -->
-  @if (canBid()) {
+  @if (canBid() && !isWatcherMode) {
     <div class="bidding-panel">
       <h3>Your Bid</h3>
       <div class="bid-info">
@@ -191,7 +209,9 @@
           </div>
         </div>
         
-        <button class="btn btn-close-popup" (click)="closeScoringPopup()">OK</button>
+        @if (!isWatcherMode) {
+          <button class="btn btn-close-popup" (click)="closeScoringPopup()">OK</button>
+        }
       </div>
     </div>
   }
@@ -223,7 +243,7 @@
   }
   
   <!-- Trump Declaration UI -->
-  @if (canDeclareTrump()) {
+  @if (canDeclareTrump() && !isWatcherMode) {
     <div class="trump-panel">
       <h3>Declare Trump Suit</h3>
       <p class="trump-info">You won the bid with <strong>{{ game?.highBid }}</strong>. Choose your trump suit:</p>
@@ -257,7 +277,7 @@
     </div>
   }
   <!-- Got The Rest Button -->
-  @if (canShowGotTheRestButton) {
+  @if (canShowGotTheRestButton && !isWatcherMode) {
     <div class="got-the-rest-panel">
       <button class="btn-got-the-rest" (click)="onClaimGotTheRest()">
         Got The Rest

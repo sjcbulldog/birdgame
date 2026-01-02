@@ -7,11 +7,9 @@ Add a user dialog that is accessible to admin users via the hamburger menu.  The
 
 When a user logs out of the site, they should be removed from the Logged In Users list.
 
-# In Progress
-
-When in the game view, if I am ready to lead the first cards in a new trick, and I own the bid, and no one else has trumps, and all of the non-trump cards I have are the highest, the display a 'Got The Rest' button to the right of the players hand. Note, non-trump cards could be a run like 14, 13, 12 or could be a set of 14s.  Non-trump cards should also be holding a 13 knowing the 14 has already been played.  Non-trump could also be holding a 12 knowing the 14 and 13 have both been played.  Basically if the non-trump cards the user is holding are the highest cards out in that color.
-
 Add an watchers view.  It is basically the same as the game view, but the user cannot interact with the game at all.  All cards in player's hands are shown face down (so only see card backs), and the watcher can see cards as their played for a trick with the same trick delay, won trick animation, etc.  The leave button takes a watcher back to the home screen and removes the player as a watcher for that table.
+
+# In Progress
 
 # Todo List
 
@@ -19,3 +17,4 @@ Animate played cards from the users hand to the middle
 
 Mobile site play
 
+When in the game view, if I am ready to lead the first cards in a new trick, and I own the bid, and no one else has trumps, and all of the non-trump cards I have are the highest, the display a 'Got The Rest' button to the right of the players hand. Note, non-trump cards could be a run like 14, 13, 12 or could be a set of 14s.  Non-trump cards should also be holding a 13 knowing the 14 has already been played.  Non-trump could also be holding a 12 knowing the 14 and 13 have both been played.  Basically if the non-trump cards the user is holding are the highest cards out in that color.

@@ -363,7 +363,35 @@ export class AIPlayer {
       
       // Strong trump strategy: if 5+ trumps with red-1 and bird, lead high trumps to exhaust opponents
       if (totalTrumpsInHand >= 5 && hasRedOne && hasBird && trumps.length > 0) {
-        // Lead highest trump first (red-1 > bird > regular trumps by value)
+        // First, lead guaranteed high trumps: red 1, bird, and any other highest outstanding trumps
+        const redOne = trumps.find(c => c.color === 'red' && c.value === 1);
+        if (redOne) {
+          return redOne.id;
+        }
+        
+        const bird = trumps.find(c => c.color === 'bird');
+        if (bird) {
+          return bird.id;
+        }
+        
+        // Check for other guaranteed high trumps (14s where no higher card of same color remains)
+        const regularTrumps = trumps.filter(c => c.color !== 'red' || c.value !== 1).filter(c => c.color !== 'bird');
+        for (const trump of regularTrumps) {
+          if (this.isHighestOutstandingTrump(trump, currentTrick)) {
+            // This is a guaranteed high trump, lead it
+            return trump.id;
+          }
+        }
+        
+        // No more guaranteed high trumps, lead highest non-point trump to pull remaining trumps
+        const nonPointTrumps = trumps.filter(c => !this.isPointCard(c));
+        if (nonPointTrumps.length > 0) {
+          // Lead highest non-point trump
+          nonPointTrumps.sort((a, b) => this.trumpValue(b) - this.trumpValue(a));
+          return nonPointTrumps[0].id;
+        }
+        
+        // All remaining trumps are point cards, lead highest
         trumps.sort((a, b) => this.trumpValue(b) - this.trumpValue(a));
         return trumps[0].id;
       }
@@ -1077,6 +1105,7 @@ export class AIPlayer {
           return trumpCards;
         }
       } else {
+        // Note: red 1 is always trump, never red (unless red is the trump suit)
         const cardsOfLeadSuit = this.hand.filter(c => c.color === leadSuit);
         if (cardsOfLeadSuit.length > 0) {
           return cardsOfLeadSuit;
