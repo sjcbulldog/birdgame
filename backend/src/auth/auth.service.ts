@@ -1,7 +1,8 @@
-import { Injectable, ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, ConflictException, UnauthorizedException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
 import { EmailService } from '../email/email.service';
+import { HeartbeatService } from '../gateway/heartbeat.service';
 import { RegisterDto, LoginDto } from './dto/auth.dto';
 import { randomBytes } from 'crypto';
 
@@ -11,6 +12,8 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private emailService: EmailService,
+    @Inject(forwardRef(() => HeartbeatService))
+    private heartbeatService: HeartbeatService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -70,6 +73,17 @@ export class AuthService {
 
     if (user.status === 'disabled') {
       throw new UnauthorizedException('This account has been disabled');
+    }
+
+    if (user.userType === 'banned') {
+      throw new UnauthorizedException('You have been banned from this site. Please contact support if you believe this is an error.');
+    }
+
+    // Check if user is already logged in
+    const activeHeartbeats = this.heartbeatService.getHeartbeatStatus();
+    const isAlreadyLoggedIn = activeHeartbeats.some(hb => hb.userId === user.id);
+    if (isAlreadyLoggedIn) {
+      throw new UnauthorizedException('You cannot log in more than once to the site. Please log out from your other session first.');
     }
 
     const payload = { email: user.email, sub: user.id, userType: user.userType };

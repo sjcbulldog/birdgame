@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TablesService } from '../tables/tables.service';
+import { UsersService } from '../users/users.service';
 
 interface HeartbeatData {
   userId: string;
@@ -16,8 +17,12 @@ export class HeartbeatService {
   private readonly HEARTBEAT_TIMEOUT = 60000; // 60 seconds (4 heartbeats)
   private readonly CLEANUP_INTERVAL = 15000; // Check every 15 seconds
   private readonly ORPHANED_USER_CHECK_INTERVAL = 60000; // Check every 60 seconds
+  private gateway: any; // TablesGateway reference to avoid circular dependency
 
-  constructor(private tablesService: TablesService) {
+  constructor(
+    private tablesService: TablesService,
+    private usersService: UsersService,
+  ) {
     // Start cleanup interval for stale connections
     this.cleanupInterval = setInterval(() => {
       this.checkForStaleConnections();
@@ -27,6 +32,13 @@ export class HeartbeatService {
     this.orphanedUserCheckInterval = setInterval(() => {
       this.checkForOrphanedTableUsers();
     }, this.ORPHANED_USER_CHECK_INTERVAL);
+  }
+
+  /**
+   * Set the gateway reference for emitting updates
+   */
+  setGateway(gateway: any): void {
+    this.gateway = gateway;
   }
 
   /**
@@ -65,16 +77,29 @@ export class HeartbeatService {
 
     // Clean up stale users
     for (const userId of staleUsers) {
-      await this.cleanupStaleUser(userId);
+      await this.cleanupUser(userId);
     }
   }
 
   /**
-   * Clean up a user who has timed out
+   * Remove a user by socket ID (called when socket disconnects)
    */
-  private async cleanupStaleUser(userId: string): Promise<void> {
+  async removeUserBySocketId(socketId: string): Promise<void> {
+    // Find user by socket ID
+    for (const [userId, data] of this.heartbeats.entries()) {
+      if (data.socketId === socketId) {
+        await this.cleanupUser(userId);
+        return;
+      }
+    }
+  }
+
+  /**
+   * Clean up a user who has timed out or logged out
+   */
+  async cleanupUser(userId: string): Promise<void> {
     try {
-      this.logger.log(`Cleaning up stale user: ${userId}`);
+      this.logger.log(`Cleaning up user: ${userId}`);
       
       // Remove from heartbeat tracking
       this.heartbeats.delete(userId);
@@ -82,21 +107,27 @@ export class HeartbeatService {
       // Remove from any table they're at
       await this.tablesService.removeUserFromAllTables(userId);
       
-      this.logger.log(`Successfully cleaned up stale user: ${userId}`);
+      // Emit logged-in users update
+      if (this.gateway?.emitLoggedInUsersUpdate) {
+        await this.gateway.emitLoggedInUsersUpdate();
+      }
+      
+      this.logger.log(`Successfully cleaned up user: ${userId}`);
     } catch (error) {
-      this.logger.error(`Error cleaning up stale user ${userId}:`, error);
+      this.logger.error(`Error cleaning up user ${userId}:`, error);
     }
   }
 
   /**
-   * Get current heartbeat status for debugging
+   * Get current heartbeat status for debugging and user management
    */
-  getHeartbeatStatus(): { userId: string; lastHeartbeat: Date; secondsSinceHeartbeat: number }[] {
+  getHeartbeatStatus(): { userId: string; lastHeartbeat: Date; secondsSinceHeartbeat: number; socketId: string }[] {
     const now = new Date();
     return Array.from(this.heartbeats.values()).map(data => ({
       userId: data.userId,
       lastHeartbeat: data.lastHeartbeat,
       secondsSinceHeartbeat: Math.round((now.getTime() - data.lastHeartbeat.getTime()) / 1000),
+      socketId: data.socketId,
     }));
   }
 
@@ -157,6 +188,27 @@ export class HeartbeatService {
     } catch (error) {
       this.logger.error('Error checking for orphaned table users:', error);
     }
+  }
+
+  /**
+   * Get list of logged-in users with their usernames
+   */
+  async getLoggedInUsers(): Promise<{ id: string; username: string }[]> {
+    const userIds = Array.from(this.heartbeats.keys());
+    const users = [];
+
+    for (const userId of userIds) {
+      const user = await this.usersService.findById(userId);
+      if (user) {
+        users.push({
+          id: user.id,
+          username: user.username,
+        });
+      }
+    }
+
+    // Sort by username
+    return users.sort((a, b) => a.username.localeCompare(b.username));
   }
 
   /**

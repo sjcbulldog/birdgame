@@ -3,6 +3,6 @@ export const environment = {
   production: false,
   // Use the SERVER_BASE from backend .env file
   // This ensures consistent API URL across all environments
-  apiUrl: 'http://127.0.0.1:3000',
-  wsUrl: 'http://127.0.0.1:3000'
+  apiUrl: 'http://192.168.1.35:3000',
+  wsUrl: 'http://192.168.1.35:3000'
 };

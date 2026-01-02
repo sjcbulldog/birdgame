@@ -13,5 +13,6 @@ export const routes: Routes = [
   { path: 'verify-email', component: VerifyEmailComponent },
   { path: 'home', component: HomeComponent, canActivate: [authGuard] },
   { path: 'game/:gameId', component: GameComponent, canActivate: [authGuard] },
+  { path: 'watch/:gameId', component: GameComponent, canActivate: [authGuard] },
   { path: '**', redirectTo: '/login' }
 ];

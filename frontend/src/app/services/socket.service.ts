@@ -12,6 +12,7 @@ export class SocketService implements OnDestroy {
   private socket: Socket | null = null;
   private gameStateSubject = new Subject<any>();
   private playerReadyUpdateSubject = new Subject<{ playerReady: Record<string, boolean>; allReady: boolean }>();
+  private loggedInUsersSubject = new Subject<Array<{ id: string; username: string }>>();
   private heartbeatInterval: any = null;
   private userId: string | null = null;
 
@@ -57,6 +58,11 @@ export class SocketService implements OnDestroy {
     this.socket.on('playerReadyUpdate', (data: { playerReady: Record<string, boolean>; allReady: boolean }) => {
       this.playerReadyUpdateSubject.next(data);
     });
+
+    // Listen for logged-in users updates
+    this.socket.on('loggedInUsersUpdated', (data: Array<{ id: string; username: string }>) => {
+      this.loggedInUsersSubject.next(data);
+    });
   }
 
   private startHeartbeat(): void {
@@ -92,12 +98,24 @@ export class SocketService implements OnDestroy {
     this.userId = null;
   }
 
+  // Generic emit for custom events
+  emit(event: string, data: any): void {
+    if (!this.socket) {
+      throw new Error('Socket not connected');
+    }
+    this.socket.emit(event, data);
+  }
+
   // Table events
   onTableUpdated(): Observable<Table[]> {
     if (!this.socket) {
       throw new Error('Socket not connected');
     }
     return fromEvent<Table[]>(this.socket, 'tableUpdated');
+  }
+
+  onLoggedInUsersUpdated(): Observable<Array<{ id: string; username: string }>> {
+    return this.loggedInUsersSubject.asObservable();
   }
 
   // Game events
@@ -162,6 +180,27 @@ export class SocketService implements OnDestroy {
       throw new Error('Socket not connected');
     }
     this.socket.emit('dealingComplete', { gameId });
+  }
+
+  toggleBRB(gameId: string, player: string) {
+    if (!this.socket) {
+      throw new Error('Socket not connected');
+    }
+    this.socket.emit('toggleBRB', { gameId, player });
+  }
+
+  sayMessage(gameId: string, player: string, message: string) {
+    if (!this.socket) {
+      throw new Error('Socket not connected');
+    }
+    this.socket.emit('sayMessage', { gameId, player, message });
+  }
+
+  claimGotTheRest(gameId: string, player: string) {
+    if (!this.socket) {
+      throw new Error('Socket not connected');
+    }
+    this.socket.emit('claimGotTheRest', { gameId, player });
   }
 
   // Game state listeners

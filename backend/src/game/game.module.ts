@@ -13,7 +13,7 @@ import { GatewayModule } from '../gateway/gateway.module';
     TypeOrmModule.forFeature([Game]),
     forwardRef(() => TablesModule),
     forwardRef(() => GatewayModule),
-    UsersModule,
+    forwardRef(() => UsersModule),
   ],
   controllers: [GameController],
   providers: [GameService, GameGateway],

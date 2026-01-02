@@ -13,16 +13,20 @@
       <h1>For The Birds</h1>
       <div class="nav-actions">
         @if (currentUser) {
-          <span class="user-info">
-            Welcome, {{ currentUser.username }}!
-          </span>
+          <div class="user-info-container">
+            <span class="user-info">
+              Welcome, {{ currentUser.username }}!
+            </span>
+            <a class="attributions-link" (click)="showAttributions()">Attributions</a>
+          </div>
         }
         <div style="position: relative;">
           <button class="btn btn-menu" (click)="toggleMenu()">☰</button>
           @if (showMenu) {
-            <div class="dropdown-menu">
+            <div class="dropdown-menu" (click)="$event.stopPropagation()">
               @if (currentUser?.userType === 'admin') {
                 <button class="menu-item" (click)="openPreferences()">Preferences</button>
+                <button class="menu-item" (click)="openUsersDialog()">Manage Users</button>
               }
               <button class="menu-item" (click)="logout()">Logout</button>
             </div>
@@ -33,6 +37,18 @@
   </nav>
 
   <div class="content">
+    <div class="logged-in-users">
+      <h3>Logged In Users</h3>
+      <div class="users-list">
+        @if (loggedInUsers().length === 0) {
+          <p class="no-users">No users logged in</p>
+        }
+        @for (user of loggedInUsers(); track user.id) {
+          <div class="user-item">{{ user.username }}</div>
+        }
+      </div>
+    </div>
+
     <div class="cards-grid">
       @for (table of tables(); track table.id) {
         <div class="card">
@@ -131,6 +147,28 @@
     </div>
   </div>
 
+  <!-- Attributions Dialog -->
+  @if (showAttributionsDialog) {
+    <div class="dialog-overlay" (click)="closeAttributions()">
+      <div class="dialog-content attributions-dialog" (click)="$event.stopPropagation()">
+        <div class="dialog-header">
+          <h2>Attributions</h2>
+          <button class="close-btn" (click)="closeAttributions()" aria-label="Close">×</button>
+        </div>
+        <div class="attributions-content">
+          <p><a href="https://www.flaticon.com/free-icons/bureau" title="bureau icons" target="_blank" rel="noopener noreferrer">Bureau icons created by Freepik - Flaticon</a></p>
+          <p><a href="https://www.flaticon.com/free-icons/user" title="user icons" target="_blank" rel="noopener noreferrer">User icons created by Freepik - Flaticon</a></p>
+          <p><a href="https://www.flaticon.com/free-icons/empty" title="empty icons" target="_blank" rel="noopener noreferrer">Empty icons created by meaicon - Flaticon</a></p>
+          <p><a href="https://www.flaticon.com/free-icons/bird" title="bird icons" target="_blank" rel="noopener noreferrer">Bird icons created by Freepik - Flaticon</a></p>
+          <p><a href="https://www.flaticon.com/free-icons/computer" title="computer icons" target="_blank" rel="noopener noreferrer">Computer icons created by xnimrodx - Flaticon</a></p>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn btn-primary" (click)="closeAttributions()">Close</button>
+        </div>
+      </div>
+    </div>
+  }
+
   <!-- Preferences Dialog -->
   @if (showPreferencesDialog) {
     <div class="dialog-overlay">
@@ -139,6 +177,11 @@
           <h2>Site Preferences</h2>
           <button class="close-btn" (click)="cancelPreferences()" aria-label="Close">×</button>
         </div>
+        @if (errorMessage()) {
+          <div class="error-message">
+            {{ errorMessage() }}
+          </div>
+        }
         <div class="preference-item">
           <label for="tableCount">Total Number of Tables (3-36):</label>
           <input 
@@ -162,10 +205,102 @@
             class="table-count-input"
           />
         </div>
+        <div class="preference-item">
+          <label for="trickAnimationTime">Trick Animation Time in milliseconds (500-5000):</label>
+          <input 
+            type="number" 
+            id="trickAnimationTime" 
+            [(ngModel)]="trickAnimationTime"
+            min="500" 
+            max="5000"
+            step="100" 
+            class="table-count-input"
+          />
+        </div>
+        <div class="preference-item">
+          <label for="trickDisplayDelay">Trick Display Delay in milliseconds (500-10000):</label>
+          <input 
+            type="number" 
+            id="trickDisplayDelay" 
+            [(ngModel)]="trickDisplayDelay"
+            min="500" 
+            max="10000"
+            step="100" 
+            class="table-count-input"
+          />
+        </div>
+        <div class="preference-item">
+          <label for="bidWinnerMessageTime">Bid Winner Message Time in milliseconds (10-10000):</label>
+          <input 
+            type="number" 
+            id="bidWinnerMessageTime" 
+            [(ngModel)]="bidWinnerMessageTime"
+            min="10" 
+            max="10000"
+            step="100" 
+            class="table-count-input"
+          />
+        </div>
         <p class="warning">Note: Changing table count will remove tables with active games or players if reducing the count.</p>
         <div class="dialog-actions">
           <button class="btn btn-secondary" (click)="cancelPreferences()">Cancel</button>
           <button class="btn btn-primary" (click)="savePreferences()">Save</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Users Management Dialog -->
+  @if (showUsersDialog) {
+    <div class="dialog-overlay" (click)="closeUsersDialog()">
+      <div class="dialog-content users-dialog" (click)="$event.stopPropagation()">
+        <h2>Manage Users</h2>
+        
+        <div class="users-search">
+          <input 
+            type="text" 
+            placeholder="Search by username, email, first name, or last name..."
+            [(ngModel)]="userSearchText"
+            (input)="filterUsers()"
+            class="search-input"
+          />
+        </div>
+
+        <div class="users-list">
+          @if (filteredUsers.length === 0) {
+            <p class="no-users">No users found</p>
+          }
+          @for (user of filteredUsers; track user.id) {
+            <div class="user-row">
+              <div class="user-info-column">
+                <div class="user-name">{{ user.username }}</div>
+                <div class="user-email">{{ user.email }}</div>
+                @if (user.firstName || user.lastName) {
+                  <div class="user-full-name">{{ user.firstName }} {{ user.lastName }}</div>
+                }
+                <div class="user-meta">
+                  <span class="user-status">Status: {{ user.status }}</span>
+                  <span class="user-created">Joined: {{ formatDate(user.createdAt) }}</span>
+                </div>
+              </div>
+              <div class="user-type-column">
+                <select 
+                  [value]="user.userType"
+                  (change)="updateUserType(user, $any($event.target).value)"
+                  [class]="getUserTypeClass(user.userType)"
+                  class="user-type-select">
+                  <option value="admin">Admin</option>
+                  <option value="normal">Normal</option>
+                  <option value="pending">Pending</option>
+                  <option value="banned">Banned</option>
+                </select>
+              </div>
+            </div>
+          }
+        </div>
+
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" (click)="closeUsersDialog()">Close</button>
         </div>
       </div>
     </div>

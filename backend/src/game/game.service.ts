@@ -145,6 +145,18 @@ export class GameService implements OnModuleInit {
           south: playerTypes.south === 'computer',
           west: playerTypes.west === 'computer',
         },
+        playerBRB: {
+          north: false,
+          east: false,
+          south: false,
+          west: false,
+        },
+        playerMessages: {
+          north: null,
+          east: null,
+          south: null,
+          west: null,
+        },
         gameState: this.initializeGameState(),
       });
 
@@ -379,6 +391,29 @@ export class GameService implements OnModuleInit {
         const partner = this.getPartner(player);
         if (game.highBidder !== partner) {
           throw new BadRequestException('Can only check if partner is high bidder');
+        }
+        
+        // Check if both opponents have passed
+        // If so, player cannot check again - they must bid or pass
+        const opponents: PlayerPosition[] = (['north', 'south', 'east', 'west'] as PlayerPosition[])
+          .filter(p => p !== player && p !== partner);
+        
+        // Count consecutive passes since the last check
+        let passCount = 0;
+        for (let i = game.gameState.biddingHistory.length - 1; i >= 0; i--) {
+          const entry = game.gameState.biddingHistory[i];
+          if (entry.bid === 'check' && entry.player === player) {
+            break; // Stop at player's previous check
+          }
+          if (entry.bid === 'pass' && opponents.includes(entry.player)) {
+            passCount++;
+          } else if (typeof entry.bid === 'number' || entry.bid === 'check') {
+            passCount = 0; // Reset if there's a real bid or check
+          }
+        }
+        
+        if (passCount >= 2) {
+          throw new BadRequestException('Cannot check again after both opponents passed. You must overbid your partner or pass.');
         }
       }
 
@@ -895,6 +930,85 @@ export class GameService implements OnModuleInit {
     return { game, allHumansReady, gameComplete, winningTeam };
   }
 
+  async togglePlayerBRB(gameId: string, player: PlayerPosition): Promise<Game> {
+    const game = await this.gameRepository.findOne({ where: { id: gameId } });
+
+    if (!game) {
+      throw new NotFoundException(`Game with ID ${gameId} not found`);
+    }
+
+    if (game.state === GameState.NEW) {
+      throw new BadRequestException('Cannot set BRB status in NEW state');
+    }
+
+    // Initialize playerBRB if not exists
+    if (!game.playerBRB) {
+      game.playerBRB = { north: false, east: false, south: false, west: false };
+    }
+
+    // Toggle BRB state
+    game.playerBRB[player] = !game.playerBRB[player];
+
+    await this.gameRepository.save(game);
+
+    // Emit update
+    if (this.gateway) {
+      this.gateway.emitGameUpdate(gameId);
+    }
+
+    return game;
+  }
+
+  async setPlayerMessage(gameId: string, player: PlayerPosition, message: string): Promise<Game> {
+    const game = await this.gameRepository.findOne({ where: { id: gameId } });
+
+    if (!game) {
+      throw new NotFoundException(`Game with ID ${gameId} not found`);
+    }
+
+    if (game.state === GameState.NEW) {
+      throw new BadRequestException('Cannot send messages in NEW state');
+    }
+
+    // Initialize playerMessages if not exists
+    if (!game.playerMessages) {
+      game.playerMessages = { north: null, east: null, south: null, west: null };
+    }
+
+    // Set message with timestamp
+    game.playerMessages[player] = {
+      text: message,
+      timestamp: Date.now(),
+    };
+
+    await this.gameRepository.save(game);
+
+    // Emit update
+    if (this.gateway) {
+      this.gateway.emitGameUpdate(gameId);
+    }
+
+    // Clear the message after 2 seconds
+    setTimeout(async () => {
+      try {
+        const updatedGame = await this.gameRepository.findOne({ where: { id: gameId } });
+        if (updatedGame && updatedGame.playerMessages && updatedGame.playerMessages[player]) {
+          updatedGame.playerMessages[player] = null;
+          await this.gameRepository.save(updatedGame);
+          
+          // Emit update to all clients
+          if (this.gateway) {
+            this.gateway.emitGameUpdate(gameId);
+          }
+        }
+      } catch (error) {
+        this.logger.error(`Error clearing message for player ${player} in game ${gameId}:`, error);
+      }
+    }, 2000);
+
+    return game;
+  }
+
   // Helper methods
   private initializeGameState(): GameStateData {
     return {
@@ -1180,6 +1294,7 @@ export class GameService implements OnModuleInit {
         }
       } else {
         // Regular suit following (not trump)
+        // Note: red 1 is always trump, never red (unless red is the trump suit)
         const hasLeadSuit = hand.some(c => c.color === leadSuit);
         if (hasLeadSuit && card.color !== leadSuit) {
           throw new BadRequestException(`Must follow suit (${leadSuit})`);
@@ -1400,6 +1515,260 @@ export class GameService implements OnModuleInit {
     // Emit game state update
     if (this.gateway) {
       await this.gateway.emitGameUpdate(gameId);
+    }
+  }
+
+  /**
+   * Check if a player can claim "Got The Rest"
+   * This is valid when:
+   * 1. Player is the high bidder (owns the bid)
+   * 2. Player is leading the trick (currentTrick is empty)
+   * 3. No opponent has trump cards remaining
+   * 4. All non-trump cards the player has are the highest remaining in their colors
+   */
+  async canClaimGotTheRest(gameId: string, player: PlayerPosition): Promise<boolean> {
+    try {
+      const game = await this.gameRepository.findOne({ where: { id: gameId } });
+      if (!game) return false;
+
+      // Must be in playing state
+      if (game.state !== GameState.PLAYING) return false;
+
+      // Player must be the high bidder
+      if (game.highBidder !== player) return false;
+
+      // Must be leading a trick (currentTrick is empty)
+      const currentTrick = game.gameState.currentTrick;
+      if (currentTrick.cards.length !== 0) return false;
+
+      const trumpSuit = game.trumpSuit;
+      const playerHand = game.gameState.hands[player];
+      
+      // Get all played cards (from completedTricks and discardedCards)
+      const playedCards = new Set<string>();
+      for (const trick of game.gameState.completedTricks) {
+        for (const { card } of trick.cards) {
+          playedCards.add(`${card.color}-${card.value}`);
+        }
+      }
+      for (const card of game.gameState.discardedCards) {
+        playedCards.add(`${card.color}-${card.value}`);
+      }
+
+      // Get opponent positions
+      const partner = this.getPartner(player);
+      const opponents: PlayerPosition[] = ['north', 'east', 'south', 'west'].filter(
+        pos => pos !== player && pos !== partner
+      ) as PlayerPosition[];
+
+      // Check if any opponent has trump cards
+      for (const opponent of opponents) {
+        const opponentHand = game.gameState.hands[opponent];
+        for (const card of opponentHand) {
+          if (this.isTrumpCard(card, trumpSuit)) {
+            return false; // Opponent has trump
+          }
+        }
+      }
+
+      // Check if all non-trump cards in player's hand are the highest remaining
+      for (const card of playerHand) {
+        if (this.isTrumpCard(card, trumpSuit)) {
+          continue; // Skip trump cards
+        }
+
+        // For this non-trump card, check if any higher card of the same color exists unplayed
+        const cardColor = card.color;
+        const cardValue = card.value;
+
+        // Check all cards with higher values in the same color
+        for (let value = cardValue + 1; value <= 14; value++) {
+          const higherCardKey = `${cardColor}-${value}`;
+          
+          // Check if this card has been played
+          if (playedCards.has(higherCardKey)) {
+            continue; // This higher card has been played, so it's fine
+          }
+
+          // Check if player or partner has this card
+          const playerHasIt = playerHand.some(c => c.color === cardColor && c.value === value);
+          const partnerHasIt = game.gameState.hands[partner].some(
+            c => c.color === cardColor && c.value === value
+          );
+
+          if (playerHasIt || partnerHasIt) {
+            continue; // Player or partner has it, so it's fine
+          }
+
+          // An opponent has a higher card of this color
+          return false;
+        }
+      }
+
+      // All conditions met
+      return true;
+    } catch (error) {
+      this.logger.error('Error checking canClaimGotTheRest:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Check if a card is a trump card
+   */
+  private isTrumpCard(card: Card, trumpSuit: Suit | null): boolean {
+    if (!trumpSuit) return false;
+    return card.color === trumpSuit || 
+           card.color === 'bird' || 
+           (card.color === 'red' && card.value === 1);
+  }
+
+  /**
+   * Claim "Got The Rest" - automatically play all remaining tricks
+   */
+  async claimGotTheRest(gameId: string, player: PlayerPosition): Promise<Game> {
+    const game = await this.gameRepository.findOne({ where: { id: gameId } });
+    
+    if (!game) {
+      throw new NotFoundException(`Game with ID ${gameId} not found`);
+    }
+
+    // Validate that player can claim
+    if (!this.canClaimGotTheRest(gameId, player)) {
+      throw new BadRequestException('Cannot claim "Got The Rest" at this time');
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Auto-play all remaining cards
+      const playerHand = game.gameState.hands[player];
+      const remainingTricks = playerHand.length;
+
+      for (let trickNum = 0; trickNum < remainingTricks; trickNum++) {
+        // Play one card from each player's hand
+        const positions: PlayerPosition[] = ['north', 'east', 'south', 'west'];
+        
+        for (const pos of positions) {
+          const hand = game.gameState.hands[pos];
+          if (hand.length > 0) {
+            const cardToPlay = hand[0]; // Just play the first card
+            
+            // Remove from hand
+            game.gameState.hands[pos] = hand.filter(c => c.id !== cardToPlay.id);
+            
+            // Add to current trick
+            game.gameState.currentTrick.cards.push({
+              player: pos,
+              card: cardToPlay
+            });
+            
+            // Set lead player and suit for first card
+            if (game.gameState.currentTrick.cards.length === 1) {
+              game.gameState.currentTrick.leadPlayer = pos;
+              game.gameState.currentTrick.leadSuit = cardToPlay.color === 'bird' || 
+                (cardToPlay.color === 'red' && cardToPlay.value === 1)
+                ? game.trumpSuit
+                : cardToPlay.color;
+            }
+          }
+        }
+
+        // Complete the trick
+        const winner = this.determineTrickWinner(game.gameState.currentTrick, game.trumpSuit);
+        const points = this.calculateTrickPoints(game.gameState.currentTrick.cards);
+
+        game.gameState.completedTricks.push({
+          winner,
+          cards: game.gameState.currentTrick.cards,
+          points
+        });
+
+        // Reset current trick for next iteration
+        game.gameState.currentTrick = {
+          cards: [],
+          leadPlayer: winner, // Winner leads next trick
+          leadSuit: null
+        };
+      }
+
+      // Calculate final hand results
+      let northSouthPoints = 0;
+      let eastWestPoints = 0;
+
+      for (const trick of game.gameState.completedTricks) {
+        if (trick.winner === 'north' || trick.winner === 'south') {
+          northSouthPoints += trick.points;
+        } else {
+          eastWestPoints += trick.points;
+        }
+      }
+
+      const biddingTeam = (game.highBidder === 'north' || game.highBidder === 'south') 
+        ? 'northSouth' 
+        : 'eastWest';
+      const biddingTeamPoints = biddingTeam === 'northSouth' ? northSouthPoints : eastWestPoints;
+      const madeBid = biddingTeamPoints >= game.highBid;
+
+      game.lastHandResult = {
+        biddingTeam,
+        bid: game.highBid,
+        northSouthPoints,
+        eastWestPoints,
+        madeBid
+      };
+
+      // Save and transition to scoring
+      const savedGame = await queryRunner.manager.save(game);
+      await queryRunner.commitTransaction();
+
+      if (this.gateway) {
+        this.gateway.emitGameUpdate(savedGame.id);
+      }
+
+      // Transition to scoring state after a delay
+      setTimeout(async () => {
+        const queryRunner = this.gameRepository.manager.connection.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+          const game = await queryRunner.manager.findOne(Game, {
+            where: { id: gameId },
+            relations: ['table', 'table.northPlayer', 'table.southPlayer', 'table.eastPlayer', 'table.westPlayer'],
+          });
+
+          if (!game) {
+            await queryRunner.rollbackTransaction();
+            return;
+          }
+
+          game.state = GameState.SCORING;
+          const updatedGame = await queryRunner.manager.save(game);
+          await queryRunner.commitTransaction();
+
+          if (this.gateway) {
+            this.gateway.emitGameUpdate(updatedGame.id);
+          }
+
+          // Auto-score the hand after another delay
+          setTimeout(() => this.scoreHand(gameId), 2000);
+        } catch (error) {
+          await queryRunner.rollbackTransaction();
+          console.error('Error transitioning to scoring state:', error);
+        } finally {
+          await queryRunner.release();
+        }
+      }, 1000);
+
+      return savedGame;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
   }
 }

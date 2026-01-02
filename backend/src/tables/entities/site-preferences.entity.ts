@@ -10,4 +10,13 @@ export class SitePreferences {
 
   @Column({ default: 10000 })
   dealAnimationTime: number;
+
+  @Column({ default: 1000 })
+  trickAnimationTime: number;
+
+  @Column({ default: 2000 })
+  trickDisplayDelay: number;
+
+  @Column({ default: 1000 })
+  bidWinnerMessageTime: number;
 }

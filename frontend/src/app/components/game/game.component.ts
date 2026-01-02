@@ -37,6 +37,8 @@ interface ServerGameState {
   playerNames: Record<string, string>;
   playerReady: Record<string, boolean>;
   scoringReady: Record<string, boolean>;
+  playerBRB?: Record<string, boolean>;
+  playerMessages?: Record<string, { text: string; timestamp: number } | null>;
   table: {
     id: string;
     tableNumber: number;
@@ -91,6 +93,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   game?: ServerGameState;
   gameId?: string;
   myPosition?: string; // north, east, south, west - the user's backend position
+  isWatcherMode = false; // true if user is watching, not playing
   playerReadyState: Record<string, boolean> = {};
   isWaitingForPlayers = false;
   private previousGameState?: string;
@@ -125,11 +128,11 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   // Completed trick display
   private displayingCompletedTrick: { cards: any[], winner: string } | null = null;
   private lastCompletedTrickCount = 0;
-  private readonly TRICK_DISPLAY_DELAY = 2000; // 2 seconds to show completed trick
+  private trickDisplayDelay = 2000; // Default 2 seconds, loaded from preferences
   
   // Trick animation to won pile
   private animatingTrickToWonPile: { cards: any[], winner: string, progress: number, startTime: number } | null = null;
-  private readonly TRICK_TO_WON_PILE_DURATION = 1000; // 1 second animation
+  private trickAnimationTime = 1000; // Default 1 second animation, loaded from preferences
 
   // Position mapping: backend position -> display position
   // Display positions: bottom (current user), top, left, right
@@ -138,6 +141,26 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   // Admin hover state for viewing player cards
   private hoveredPlayerPosition: PlayerPosition | null = null;
   private playerIconPositions: Map<PlayerPosition, { x: number; y: number; size: number }> = new Map();
+
+  // Context menu state
+  showContextMenu = false;
+  contextMenuX = 0;
+  contextMenuY = 0;
+  contextMenuPlayer: PlayerPosition | null = null;
+
+  // Say message popup
+  showSayMessagePopup = false;
+  sayMessageText = '';
+  @ViewChild('sayInput') sayInputElement?: ElementRef<HTMLInputElement>;
+
+  // Bid winner flash message
+  showBidWinnerMessage = false;
+  bidWinnerName = '';
+  bidWinnerAmount = 0;
+  private bidWinnerMessageTime = 1000; // Default 1 second, loaded from preferences
+
+  // Got The Rest button state
+  canShowGotTheRestButton = false;
 
   private updateGameStateText(): void {
     if (!this.game) {
@@ -190,14 +213,20 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       this.currentUser = user;
     });
 
-    // Load deal animation time preference
+    // Load animation time preferences
     this.tableService.getPreferences().subscribe({
       next: (prefs) => {
         this.dealAnimationTime = prefs.dealAnimationTime;
+        this.trickAnimationTime = prefs.trickAnimationTime;
+        this.trickDisplayDelay = prefs.trickDisplayDelay;
+        this.bidWinnerMessageTime = prefs.bidWinnerMessageTime;
       },
       error: (error) => {
         console.error('Error loading preferences:', error);
         this.dealAnimationTime = 10000; // Fallback to default
+        this.trickAnimationTime = 1000; // Fallback to default
+        this.trickDisplayDelay = 2000; // Fallback to default
+        this.bidWinnerMessageTime = 1000; // Fallback to default
       }
     });
 
@@ -225,6 +254,18 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
             this.startDealingAnimation();
             // Reset trick counter for the new hand
             this.lastCompletedTrickCount = 0;
+          }
+
+          // Show bid winner message when transitioning from bidding to selecting
+          if (this.previousGameState === 'bidding' && game.state === 'selecting' && game.highBidder && game.highBid) {
+            this.bidWinnerName = game.playerNames?.[game.highBidder] || game.highBidder;
+            this.bidWinnerAmount = game.highBid;
+            this.showBidWinnerMessage = true;
+            // Hide message after configured time
+            setTimeout(() => {
+              this.showBidWinnerMessage = false;
+              this.cdr.detectChanges();
+            }, this.bidWinnerMessageTime);
           }
         } else if (!this.previousGameState) {
           console.log(`%cGAME STATE INITIALIZED: ${game.state}`, 
@@ -273,7 +314,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
               this.renderTable();
             }
             
-            // After 2 seconds, start animation to won pile
+            // After configured delay, start animation to won pile
             setTimeout(() => {
               if (this.displayingCompletedTrick) {
                 const trickToAnimate = this.displayingCompletedTrick;
@@ -286,7 +327,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
                 };
                 this.animateTrickToWonPile();
               }
-            }, this.TRICK_DISPLAY_DELAY);
+            }, this.trickDisplayDelay);
             
             // Skip the normal game state update at the bottom
             return;
@@ -299,6 +340,9 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
         this.game = game;
         this.playerReadyState = game.playerReady || {};
         this.updateGameStateText();
+        
+        // Check if Got The Rest button should be shown
+        this.checkGotTheRestCondition();
         
         // Update selected bid amount when it's the player's turn to bid
         if (game.state === 'bidding' && game.currentBidder === this.myPosition) {
@@ -330,7 +374,19 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     
     this.loadCardImage();
 
-    // Get game ID from route
+    // Check if this is a watch route
+    if (this.router.url.includes('/watch/')) {
+      this.isWatcherMode = true;
+    }
+
+    // Check query params for watcher mode
+    this.route.queryParams.subscribe(queryParams => {
+      if (queryParams['watch'] === 'true') {
+        this.isWatcherMode = true;
+      }
+    });
+
+    // Get game ID and watcher mode from route
     this.route.params.subscribe(params => {
       this.gameId = params['gameId'];
       if (this.gameId) {
@@ -357,6 +413,12 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
                 
                 // Join the game via socket
                 this.socketService.joinGame(this.gameId!, this.myPosition);
+              } else {
+                // User is not at table, must be watcher
+                this.isWatcherMode = true;
+                this.myPosition = 'south'; // Default position for display purposes
+                this.updatePositionMapping();
+                this.socketService.emit('joinGame', { gameId: this.gameId, player: 'watcher' });
               }
             }
             
@@ -603,7 +665,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
 
     const currentTime = Date.now();
     const elapsed = currentTime - this.animatingTrickToWonPile.startTime;
-    this.animatingTrickToWonPile.progress = Math.min(elapsed / this.TRICK_TO_WON_PILE_DURATION, 1);
+    this.animatingTrickToWonPile.progress = Math.min(elapsed / this.trickAnimationTime, 1);
 
     if (this.animatingTrickToWonPile.progress >= 1) {
       // Animation complete
@@ -883,65 +945,67 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       }
     });
 
-    // Draw start button in center with modern styling
-    const buttonWidth = 220;
-    const buttonHeight = 65;
-    const buttonX = this.TABLE_WIDTH / 2 - buttonWidth / 2;
-    const buttonY = this.TABLE_HEIGHT / 2 - buttonHeight / 2;
-    const borderRadius = 12;
+    // Draw start button in center with modern styling (only for players, not watchers)
+    if (!this.isWatcherMode) {
+      const buttonWidth = 220;
+      const buttonHeight = 65;
+      const buttonX = this.TABLE_WIDTH / 2 - buttonWidth / 2;
+      const buttonY = this.TABLE_HEIGHT / 2 - buttonHeight / 2;
+      const borderRadius = 12;
 
-    // Start button with gradient and shadow
-    this.ctx!.save();
-    
-    // Shadow
-    this.ctx!.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    this.ctx!.shadowBlur = 15;
-    this.ctx!.shadowOffsetX = 0;
-    this.ctx!.shadowOffsetY = 4;
+      // Start button with gradient and shadow
+      this.ctx!.save();
+      
+      // Shadow
+      this.ctx!.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      this.ctx!.shadowBlur = 15;
+      this.ctx!.shadowOffsetX = 0;
+      this.ctx!.shadowOffsetY = 4;
 
-    // Rounded rectangle helper
-    const roundRect = (x: number, y: number, width: number, height: number, radius: number) => {
-      this.ctx!.beginPath();
-      this.ctx!.moveTo(x + radius, y);
-      this.ctx!.lineTo(x + width - radius, y);
-      this.ctx!.quadraticCurveTo(x + width, y, x + width, y + radius);
-      this.ctx!.lineTo(x + width, y + height - radius);
-      this.ctx!.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-      this.ctx!.lineTo(x + radius, y + height);
-      this.ctx!.quadraticCurveTo(x, y + height, x, y + height - radius);
-      this.ctx!.lineTo(x, y + radius);
-      this.ctx!.quadraticCurveTo(x, y, x + radius, y);
-      this.ctx!.closePath();
-    };
+      // Rounded rectangle helper
+      const roundRect = (x: number, y: number, width: number, height: number, radius: number) => {
+        this.ctx!.beginPath();
+        this.ctx!.moveTo(x + radius, y);
+        this.ctx!.lineTo(x + width - radius, y);
+        this.ctx!.quadraticCurveTo(x + width, y, x + width, y + radius);
+        this.ctx!.lineTo(x + width, y + height - radius);
+        this.ctx!.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        this.ctx!.lineTo(x + radius, y + height);
+        this.ctx!.quadraticCurveTo(x, y + height, x, y + height - radius);
+        this.ctx!.lineTo(x, y + radius);
+        this.ctx!.quadraticCurveTo(x, y, x + radius, y);
+        this.ctx!.closePath();
+      };
 
-    // Start button background with gradient
-    const startGradient = this.ctx!.createLinearGradient(buttonX, buttonY, buttonX, buttonY + buttonHeight);
-    if (this.isWaitingForPlayers) {
-      startGradient.addColorStop(0, '#FFD54F');
-      startGradient.addColorStop(1, '#FFA726');
-    } else {
-      startGradient.addColorStop(0, '#42A5F5');
-      startGradient.addColorStop(1, '#1976D2');
+      // Start button background with gradient
+      const startGradient = this.ctx!.createLinearGradient(buttonX, buttonY, buttonX, buttonY + buttonHeight);
+      if (this.isWaitingForPlayers) {
+        startGradient.addColorStop(0, '#FFD54F');
+        startGradient.addColorStop(1, '#FFA726');
+      } else {
+        startGradient.addColorStop(0, '#42A5F5');
+        startGradient.addColorStop(1, '#1976D2');
+      }
+      
+      roundRect(buttonX, buttonY, buttonWidth, buttonHeight, borderRadius);
+      this.ctx!.fillStyle = startGradient;
+      this.ctx!.fill();
+
+      this.ctx!.restore();
+
+      // Button text with better typography
+      this.ctx!.fillStyle = '#ffffff';
+      this.ctx!.font = 'bold 20px Arial';
+      this.ctx!.textAlign = 'center';
+      this.ctx!.textBaseline = 'middle';
+      this.ctx!.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      this.ctx!.shadowBlur = 3;
+      this.ctx!.shadowOffsetX = 0;
+      this.ctx!.shadowOffsetY = 1;
+      const buttonText = this.isWaitingForPlayers ? 'Waiting...' : 'Start Game';
+      this.ctx!.fillText(buttonText, this.TABLE_WIDTH / 2, this.TABLE_HEIGHT / 2);
+      this.ctx!.shadowColor = 'transparent';
     }
-    
-    roundRect(buttonX, buttonY, buttonWidth, buttonHeight, borderRadius);
-    this.ctx!.fillStyle = startGradient;
-    this.ctx!.fill();
-
-    this.ctx!.restore();
-
-    // Button text with better typography
-    this.ctx!.fillStyle = '#ffffff';
-    this.ctx!.font = 'bold 20px Arial';
-    this.ctx!.textAlign = 'center';
-    this.ctx!.textBaseline = 'middle';
-    this.ctx!.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    this.ctx!.shadowBlur = 3;
-    this.ctx!.shadowOffsetX = 0;
-    this.ctx!.shadowOffsetY = 1;
-    const buttonText = this.isWaitingForPlayers ? 'Waiting...' : 'Start Game';
-    this.ctx!.fillText(buttonText, this.TABLE_WIDTH / 2, this.TABLE_HEIGHT / 2);
-    this.ctx!.shadowColor = 'transparent';
   }
 
   private renderDealingAnimation(): void {
@@ -1103,7 +1167,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       } else {
         const backendPos = destination as 'south' | 'west' | 'north' | 'east';
         const cardIndex = cardCounts[backendPos];
-        const isCurrentUser = backendPos === this.myPosition;
+        const isCurrentUser = backendPos === this.myPosition && !this.isWatcherMode;
         const displayPos = this.getDisplayPosition(backendPos);
         
         // For current user (displayed at bottom), use progressive sorting
@@ -1153,8 +1217,14 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       // Draw card
       let sourceX: number;
       if (isFaceUp && t === 1 && cardToRender) {
-        // Show actual card face for south and final centerPile card
-        sourceX = this.getCardSourceX(cardToRender);
+        // Show actual card face for:
+        // 1. Center pile face-up card (always shown, even in watcher mode)
+        // 2. Current user's cards (only if not in watcher mode)
+        if (isCenterPile || !this.isWatcherMode) {
+          sourceX = this.getCardSourceX(cardToRender);
+        } else {
+          sourceX = 57 * this.CARD_WIDTH_SOURCE; // Card back for watcher
+        }
       } else {
         sourceX = 57 * this.CARD_WIDTH_SOURCE; // Card back
       }
@@ -1214,10 +1284,92 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       },
       error: (error) => {
         console.error('Error leaving table:', error);
+        this.router.navigate(['/home']);
+      }
+    });
+  }
+
+  confirmLeaveWatch(): void {
+    this.showLeaveTableDialog = false;
+    
+    if (!this.game || !this.game.table || !this.game.table.id) {
+      this.router.navigate(['/home']);
+      return;
+    }
+    
+    this.tableService.unwatchTable(this.game.table.id).subscribe({
+      next: () => {
+        this.router.navigate(['/home']);
+      },
+      error: (error) => {
+        console.error('Error leaving table:', error);
         // Navigate home anyway
         this.router.navigate(['/home']);
       }
     });
+  }
+
+  onCanvasRightClick(event: MouseEvent): void {
+    event.preventDefault();
+    
+    if (!this.game || !this.canvasRef || !this.myPosition) return;
+    
+    // Don't show context menu in 'new' state
+    if (this.game.state === 'new') return;
+    
+    const canvas = this.canvasRef.nativeElement;
+    const rect = canvas.getBoundingClientRect();
+    
+    this.contextMenuX = event.clientX;
+    this.contextMenuY = event.clientY;
+    this.contextMenuPlayer = this.myPosition as PlayerPosition;
+    this.showContextMenu = true;
+    
+    // Close menu when clicking anywhere
+    setTimeout(() => {
+      const closeMenu = (e: MouseEvent) => {
+        this.showContextMenu = false;
+        document.removeEventListener('click', closeMenu);
+      };
+      document.addEventListener('click', closeMenu);
+    }, 0);
+  }
+
+  onBeRightBack(): void {
+    this.showContextMenu = false;
+    if (this.gameId && this.myPosition) {
+      this.socketService.toggleBRB(this.gameId, this.myPosition);
+    }
+  }
+
+  onIAmBack(): void {
+    this.showContextMenu = false;
+    if (this.gameId && this.myPosition) {
+      this.socketService.toggleBRB(this.gameId, this.myPosition);
+    }
+  }
+
+  onSay(): void {
+    this.showContextMenu = false;
+    this.showSayMessagePopup = true;
+    this.sayMessageText = '';
+    // Focus the input after the view updates
+    setTimeout(() => {
+      this.sayInputElement?.nativeElement.focus();
+    }, 0);
+  }
+
+  confirmSayMessage(): void {
+    if (this.sayMessageText.trim() && this.gameId && this.myPosition) {
+      this.socketService.sayMessage(this.gameId, this.myPosition, this.sayMessageText.trim());
+    }
+    this.showSayMessagePopup = false;
+    this.sayMessageText = '';
+  }
+
+  cancelSayMessage(): void {
+    this.showSayMessagePopup = false;
+    this.sayMessageText = '';
   }
 
   cancelLeaveTable(): void {
@@ -1233,7 +1385,28 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   canCheck(): boolean {
     if (!this.canBid() || !this.game?.highBidder || !this.myPosition) return false;
     const partner = this.getPartner(this.myPosition);
-    return this.game.highBidder === partner;
+    if (this.game.highBidder !== partner) return false;
+    
+    // Check if both opponents have passed since the last check
+    const opponents: string[] = ['north', 'south', 'east', 'west']
+      .filter(p => p !== this.myPosition && p !== partner);
+    
+    // Count consecutive passes since the last check
+    let passCount = 0;
+    for (let i = this.game.gameState.biddingHistory.length - 1; i >= 0; i--) {
+      const entry = this.game.gameState.biddingHistory[i];
+      if (entry.bid === 'check' && entry.player === this.myPosition) {
+        break; // Stop at player's previous check
+      }
+      if (entry.bid === 'pass' && opponents.includes(entry.player)) {
+        passCount++;
+      } else if (typeof entry.bid === 'number' || entry.bid === 'check') {
+        passCount = 0; // Reset if there's a real bid or check
+      }
+    }
+    
+    // Cannot check if both opponents already passed
+    return passCount < 2;
   }
 
   getMinBid(): number {
@@ -1619,7 +1792,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!this.ctx || !this.cardImage || cards.length === 0) return;
 
     const displayPosition = this.getDisplayPosition(backendPosition);
-    const isMyHand = backendPosition === this.myPosition;
+    const isMyHand = backendPosition === this.myPosition && !this.isWatcherMode;
     const cardCount = cards.length;
     
     // Determine if this player is active (needs to play or bid)
@@ -1634,7 +1807,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       const isPlayingState = this.game?.state === 'playing';
       
       // Draw yellow rectangle around active player's hand
-      if (isActivePlayer) {
+      if (isActivePlayer && !this.isWatcherMode) {
         this.ctx.strokeStyle = '#FFD700';
         this.ctx.lineWidth = 4;
         this.ctx.strokeRect(
@@ -1647,7 +1820,8 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
 
       for (let i = 0; i < cardCount; i++) {
         const card = cards[i];
-        const sourceX = isMyHand && card.id ? this.getCardSourceX(card) : 57 * this.CARD_WIDTH_SOURCE; // Card back
+        // In watcher mode, all cards are face down. In normal mode, show face up only for current user's hand
+        const sourceX = (isMyHand && card.id) ? this.getCardSourceX(card) : 57 * this.CARD_WIDTH_SOURCE; // Card back
         
         // Offset selected card up by 1/4 card height in playing state
         const isSelected = isPlayingState && this.selectedCardForPlay === card.id;
@@ -1932,6 +2106,9 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   private renderCenterPile(): void {
     if (!this.ctx || !this.cardImage || !this.game) return;
 
+    // Don't render center pile when showing bid winner message
+    if (this.showBidWinnerMessage) return;
+
     const centerPileCenter = { 
       x: this.TABLE_WIDTH / 2 - this.CARD_WIDTH_DISPLAY / 2, 
       y: this.TABLE_HEIGHT / 2 - this.CARD_HEIGHT_DISPLAY / 2 
@@ -2022,33 +2199,48 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
         this.playerIconPositions.set(backendPos as PlayerPosition, { x: iconX, y: iconY, size: iconSize });
       }
 
+      // Check if player is in BRB state
+      const isBRB = this.game.playerBRB && this.game.playerBRB[backendPos];
+
       // Draw icon background circle
       this.ctx.beginPath();
       this.ctx.arc(iconX + iconSize / 2, iconY + iconSize / 2, iconSize / 2, 0, 2 * Math.PI);
-      // Always green icon
-      this.ctx.fillStyle = '#4CAF50';
+      // Grey if BRB, otherwise green
+      this.ctx.fillStyle = isBRB ? '#9e9e9e' : '#4CAF50';
       this.ctx.fill();
       this.ctx.strokeStyle = '#ffffff';
       this.ctx.lineWidth = 2;
       this.ctx.stroke();
 
-      // Draw icon (computer or user)
+      // Draw icon (computer or user), greyed out if BRB
       const iconImage = new Image();
       iconImage.src = playerType === 'computer' ? '/images/computer.png' : '/images/user.png';
       if (iconImage.complete) {
+        if (isBRB) {
+          this.ctx.globalAlpha = 0.5;
+        }
         this.ctx.drawImage(iconImage, iconX + 8, iconY + 8, iconSize - 16, iconSize - 16);
+        if (isBRB) {
+          this.ctx.globalAlpha = 1.0;
+        }
       } else {
         iconImage.onload = () => {
           if (this.ctx) {
+            if (isBRB) {
+              this.ctx.globalAlpha = 0.5;
+            }
             this.ctx.drawImage(iconImage, iconX + 8, iconY + 8, iconSize - 16, iconSize - 16);
+            if (isBRB) {
+              this.ctx.globalAlpha = 1.0;
+            }
           }
         };
       }
 
-      // Draw username below icon
+      // Draw username below icon (greyed out if BRB)
       // Dealer: orange text, bold
       // Others (including active player): white text
-      this.ctx.fillStyle = isDealer ? '#ffa500' : '#ffffff';
+      this.ctx.fillStyle = isBRB ? '#9e9e9e' : (isDealer ? '#ffa500' : '#ffffff');
       this.ctx.font = isDealer ? 'bold 14px Arial' : '13px Arial';
       this.ctx.textAlign = 'center';
       this.ctx.textBaseline = 'top';
@@ -2068,7 +2260,81 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       this.ctx.shadowBlur = 0;
       this.ctx.shadowOffsetX = 0;
       this.ctx.shadowOffsetY = 0;
+
+      // Draw "Be Right Back" message if BRB
+      if (isBRB) {
+        this.ctx.fillStyle = '#ff5722';
+        this.ctx.font = 'bold 12px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'top';
+        this.ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+        this.ctx.shadowBlur = 3;
+        this.ctx.shadowOffsetX = 1;
+        this.ctx.shadowOffsetY = 1;
+        this.ctx.fillText('Be Right Back', iconX + iconSize / 2, iconY + iconSize + 25);
+        this.ctx.shadowColor = 'transparent';
+        this.ctx.shadowBlur = 0;
+        this.ctx.shadowOffsetX = 0;
+        this.ctx.shadowOffsetY = 0;
+      }
+
+      // Draw speech bubble if there's a message (and it's not expired)
+      if (this.game.playerMessages && this.game.playerMessages[backendPos]) {
+        const messageData = this.game.playerMessages[backendPos];
+        if (messageData) {
+          const messageAge = Date.now() - messageData.timestamp;
+          if (messageAge < 2000) { // Show for 2 seconds
+            this.renderSpeechBubble(iconX, iconY, iconSize, messageData.text, displayPos);
+          }
+        }
+      }
     }
+  }
+
+  private renderSpeechBubble(iconX: number, iconY: number, iconSize: number, message: string, displayPos: string): void {
+    if (!this.ctx) return;
+
+    const padding = 10;
+    const maxWidth = 200;
+    
+    // Measure text
+    this.ctx.font = '14px Arial';
+    const metrics = this.ctx.measureText(message);
+    const textWidth = Math.min(metrics.width, maxWidth);
+    const bubbleWidth = textWidth + padding * 2;
+    const bubbleHeight = 40;
+
+    // Position bubble near icon
+    let bubbleX: number, bubbleY: number;
+    if (displayPos === 'bottom') {
+      bubbleX = iconX + iconSize / 2 - bubbleWidth / 2;
+      bubbleY = iconY - bubbleHeight - 10;
+    } else if (displayPos === 'top') {
+      bubbleX = iconX + iconSize / 2 - bubbleWidth / 2;
+      bubbleY = iconY + iconSize + 30;
+    } else if (displayPos === 'left') {
+      bubbleX = iconX + iconSize + 10;
+      bubbleY = iconY + iconSize / 2 - bubbleHeight / 2;
+    } else { // right
+      bubbleX = iconX - bubbleWidth - 10;
+      bubbleY = iconY + iconSize / 2 - bubbleHeight / 2;
+    }
+
+    // Draw bubble background
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.strokeStyle = '#333333';
+    this.ctx.lineWidth = 2;
+    this.ctx.beginPath();
+    this.ctx.roundRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight, 8);
+    this.ctx.fill();
+    this.ctx.stroke();
+
+    // Draw message text
+    this.ctx.fillStyle = '#333333';
+    this.ctx.font = '14px Arial';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText(message, bubbleX + bubbleWidth / 2, bubbleY + bubbleHeight / 2, maxWidth);
   }
 
   private renderHoveredPlayerCards(position: PlayerPosition): void {
@@ -2591,6 +2857,108 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
 
   cancelLogout(): void {
     this.showLogoutDialog = false;
+  }
+
+  /**
+   * Check if the "Got The Rest" button should be shown
+   * Conditions:
+   * 1. Player is the high bidder
+   * 2. Player is leading a trick (currentTrick is empty)
+   * 3. No opponent has trump cards
+   * 4. All non-trump cards player has are the highest remaining in their colors
+   */
+  private checkGotTheRestCondition(): void {
+    this.canShowGotTheRestButton = false;
+
+    if (!this.game || !this.myPosition) return;
+    
+    // Must be in playing state
+    if (this.game.state !== 'playing') return;
+    
+    // Player must be the high bidder
+    if (this.game.highBidder !== this.myPosition) return;
+    
+    // Must be leading a trick (currentTrick is empty)
+    const currentTrick = this.game.gameState?.currentTrick;
+    if (!currentTrick || currentTrick.cards.length !== 0) return;
+    
+    const trumpSuit = this.game.trumpSuit;
+    if (!trumpSuit) return;
+    
+    const myPosition = this.myPosition as PlayerPosition;
+    const myHand = this.game.gameState.hands[myPosition];
+    if (!myHand || myHand.length === 0) return;
+    
+    // Get all played cards
+    const playedCards = new Set<string>();
+    for (const trick of this.game.gameState.completedTricks || []) {
+      for (const { card } of trick.cards) {
+        playedCards.add(`${card.color}-${card.value}`);
+      }
+    }
+    
+    // Get opponent positions
+    const partner = this.getPartner(myPosition) as PlayerPosition;
+    const opponents = (['north', 'east', 'south', 'west'] as PlayerPosition[]).filter(
+      pos => pos !== myPosition && pos !== partner
+    );
+    
+    // Check if any opponent has trump cards
+    for (const opponent of opponents) {
+      const opponentHand = this.game.gameState.hands[opponent];
+      if (opponentHand) {
+        for (const card of opponentHand) {
+          if (this.isTrumpCard(card, trumpSuit)) {
+            return; // Opponent has trump, can't claim
+          }
+        }
+      }
+    }
+    
+    // Check if all non-trump cards are highest remaining
+    for (const card of myHand) {
+      if (this.isTrumpCard(card, trumpSuit)) {
+        continue; // Skip trump cards
+      }
+      
+      const cardColor = card.color;
+      const cardValue = card.value;
+      
+      // Check for higher cards of the same color
+      for (let value = cardValue + 1; value <= 14; value++) {
+        const higherCardKey = `${cardColor}-${value}`;
+        
+        // If card has been played, it's fine
+        if (playedCards.has(higherCardKey)) continue;
+        
+        // Check if I or partner have it
+        const iHaveIt = myHand.some((c: Card) => c.color === cardColor && c.value === value);
+        const partnerHand = this.game.gameState.hands[partner];
+        const partnerHasIt = partnerHand?.some((c: Card) => c.color === cardColor && c.value === value);
+        
+        if (iHaveIt || partnerHasIt) continue;
+        
+        // An opponent has a higher card of this color
+        return;
+      }
+    }
+    
+    // All conditions met!
+    this.canShowGotTheRestButton = true;
+  }
+
+  private isTrumpCard(card: Card, trumpSuit: string): boolean {
+    return card.color === trumpSuit || 
+           card.color === 'bird' || 
+           (card.color === 'red' && card.value === 1);
+  }
+
+  onClaimGotTheRest(): void {
+    if (!this.gameId || !this.myPosition) return;
+    if (!this.canShowGotTheRestButton) return;
+    
+    this.socketService.claimGotTheRest(this.gameId, this.myPosition);
+    this.canShowGotTheRestButton = false; // Hide button immediately
   }
 
   ngOnDestroy(): void {

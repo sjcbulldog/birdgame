@@ -71,4 +71,21 @@ export class UsersService {
   async validatePassword(user: User, password: string): Promise<boolean> {
     return bcrypt.compare(password, user.password);
   }
+
+  async findAll(): Promise<User[]> {
+    return this.usersRepository.find({
+      select: ['id', 'username', 'email', 'firstName', 'lastName', 'status', 'userType', 'createdAt'],
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async updateUserType(userId: string, userType: string): Promise<User> {
+    const user = await this.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    user.userType = userType;
+    return this.usersRepository.save(user);
+  }
 }
