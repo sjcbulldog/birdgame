@@ -27,7 +27,7 @@ export class AuthService {
     const user = this.getStoredUser();
     if (token && user) {
       this.currentUserSubject.next(user);
-      this.socketService.connect(token);
+      this.socketService.connect(token, user.id);
     }
   }
 
@@ -42,7 +42,7 @@ export class AuthService {
         this.setToken(response.accessToken);
         this.setUser(response.user);
         this.currentUserSubject.next(response.user);
-        this.socketService.connect(response.accessToken);
+        this.socketService.connect(response.accessToken, response.user.id);
       }),
       catchError(error => {
         console.error('AuthService login error:', error);

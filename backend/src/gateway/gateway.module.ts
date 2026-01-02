@@ -1,9 +1,11 @@
-﻿import { Module } from '@nestjs/common';
+﻿import { Module, forwardRef } from '@nestjs/common';
 import { TablesGateway } from './tables.gateway';
 import { TablesModule } from '../tables/tables.module';
+import { HeartbeatService } from './heartbeat.service';
 
 @Module({
-  imports: [TablesModule],
-  providers: [TablesGateway],
+  imports: [forwardRef(() => TablesModule)],
+  providers: [TablesGateway, HeartbeatService],
+  exports: [HeartbeatService],
 })
 export class GatewayModule {}
