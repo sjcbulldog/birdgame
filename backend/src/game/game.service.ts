@@ -755,9 +755,32 @@ export class GameService implements OnModuleInit {
       // Use pre-calculated points from lastHandResult
       const northSouthPoints = game.lastHandResult?.northSouthPoints || 0;
       const eastWestPoints = game.lastHandResult?.eastWestPoints || 0;
+      const biddingTeam = game.lastHandResult?.biddingTeam;
+      const madeBid = game.lastHandResult?.madeBid || false;
+      const bidAmount = game.lastHandResult?.bid || 0;
 
-      game.northSouthScore += northSouthPoints;
-      game.eastWestScore += eastWestPoints;
+      // Apply scoring based on whether the bidding team made their bid
+      if (biddingTeam === 'northSouth') {
+        if (madeBid) {
+          // Bidding team made their bid - both teams get their points
+          game.northSouthScore += northSouthPoints;
+          game.eastWestScore += eastWestPoints;
+        } else {
+          // Bidding team failed - they lose their bid amount, opponents get their points
+          game.northSouthScore -= bidAmount;
+          game.eastWestScore += eastWestPoints;
+        }
+      } else if (biddingTeam === 'eastWest') {
+        if (madeBid) {
+          // Bidding team made their bid - both teams get their points
+          game.northSouthScore += northSouthPoints;
+          game.eastWestScore += eastWestPoints;
+        } else {
+          // Bidding team failed - they lose their bid amount, opponents get their points
+          game.northSouthScore += northSouthPoints;
+          game.eastWestScore -= bidAmount;
+        }
+      }
 
       // Check for winner
       if (game.northSouthScore >= 500 || game.eastWestScore >= 500) {
