@@ -1332,6 +1332,9 @@ export class GameService implements OnModuleInit {
     game.playerTypes[position] = 'human';
     game.playerNames[position] = username;
 
+    // Reset player ready state - human players need to manually press start
+    game.playerReady[position] = false;
+
     // Remove AI player for this position
     const gameAIPlayers = this.aiPlayers.get(gameId);
     if (gameAIPlayers) {
@@ -1379,6 +1382,9 @@ export class GameService implements OnModuleInit {
     // Update player type and name
     game.playerTypes[position] = 'computer';
     game.playerNames[position] = newComputerName;
+
+    // Computer players are automatically ready
+    game.playerReady[position] = true;
 
     // Create AI player for this position
     let gameAIPlayers = this.aiPlayers.get(gameId);
