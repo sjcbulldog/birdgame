@@ -21,7 +21,6 @@ export class SocketService implements OnDestroy {
 
   connect(token?: string, userId?: string): void {
     if (this.socket?.connected) {
-      console.log('Socket already connected');
       return; // Already connected
     }
 
@@ -38,12 +37,10 @@ export class SocketService implements OnDestroy {
 
     // Set up event listeners
     this.socket.on('connect', () => {
-      console.log('Socket connected');
       this.startHeartbeat();
     });
 
     this.socket.on('disconnect', () => {
-      console.log('Socket disconnected');
       this.stopHeartbeat();
     });
 

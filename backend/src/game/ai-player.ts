@@ -118,7 +118,6 @@ export class AIPlayer {
         bid = maxBid ;
       }
       else {
-        console.log('currentBid', currentBid, 'maxBid', maxBid, biddingHistory);
         if (typeof currentBid === 'number' && currentBid + 5 <= maxBid) {
           bid = currentBid + 5 ;
         }
@@ -1017,6 +1016,10 @@ export class AIPlayer {
    * Evaluate hand strength for bidding
    */
   private findMaxBid(): number {
+    if (!this.centerPileTopCard) {
+      throw new Error('centerPileTopCard should not be null during bidding phase');
+    }
+    
     let maxbid = 150 ;
     let c: Card ;
 
@@ -1033,8 +1036,6 @@ export class AIPlayer {
 
     let suit = this.longestSuitInHand(cards as Card[]) ;
     maxbid -= (9 - suit.length) * 10 ;
-
-    console.log('AIPlayer.findMaxBid', cards, '=>', maxbid) ;
 
     return maxbid ;
   }

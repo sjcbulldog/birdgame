@@ -6,6 +6,6 @@ import { HeartbeatService } from './heartbeat.service';
 @Module({
   imports: [forwardRef(() => TablesModule)],
   providers: [TablesGateway, HeartbeatService],
-  exports: [HeartbeatService],
+  exports: [HeartbeatService, TablesGateway],
 })
 export class GatewayModule {}

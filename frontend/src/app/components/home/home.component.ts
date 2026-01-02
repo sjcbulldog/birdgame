@@ -70,9 +70,17 @@ export class HomeComponent implements OnInit {
   }
 
   onPositionClick(tableId: string, position: Position, isOccupied: boolean): void {
+    const table = this.tables().find(t => t.id === tableId);
+    
     if (isOccupied) {
+      // Check if this is a computer player in an active game
+      if (table && this.isComputerPlayer(table, position)) {
+        this.errorMessage.set('Game is already in progress. Cannot join this position.');
+        setTimeout(() => this.errorMessage.set(null), 3000);
+        return;
+      }
+      
       // Check if the occupied position is the current user
-      const table = this.tables().find(t => t.id === tableId);
       if (table && this.currentUser) {
         const occupiedPlayer = table.positions[position];
         if (occupiedPlayer?.id === this.currentUser.id) {
@@ -100,6 +108,10 @@ export class HomeComponent implements OnInit {
     this.tableService.joinTable(tableId, position).subscribe({
       next: () => {
         // Success - WebSocket will update the view
+        // If the table has a game in 'new' state, navigate to it immediately
+        if (table && table.activeGameId && table.gameState === 'new') {
+          this.router.navigate(['/game', table.activeGameId]);
+        }
       },
       error: (error) => {
         if (error.status === 409) {
@@ -242,6 +254,28 @@ export class HomeComponent implements OnInit {
   }
 
   isComputerPlayer(table: Table, position: Position): boolean {
-    return table.playerTypes?.[position] === 'computer';
+    // Show computer players when there's an active game with playerTypes defined
+    if (!table.activeGameId || !table.playerTypes) {
+      return false;
+    }
+    return table.playerTypes[position] === 'computer';
+  }
+
+  hasPlayerAtPosition(table: Table, position: Position): boolean {
+    // A position is occupied if there's a human player OR a computer player (when game is active)
+    if (table.positions[position]) {
+      return true;
+    }
+    return this.isComputerPlayer(table, position);
+  }
+
+  getPlayerName(table: Table, position: Position): string {
+    if (table.positions[position]) {
+      return table.positions[position]!.username;
+    }
+    if (this.isComputerPlayer(table, position)) {
+      return table.playerNames?.[position] || 'Computer';
+    }
+    return '';
   }
 }

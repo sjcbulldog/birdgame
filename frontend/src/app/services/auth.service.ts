@@ -36,7 +36,6 @@ export class AuthService {
   }
 
   login(data: LoginRequest): Observable<AuthResponse> {
-    console.log(`AuthService login (${this.apiUrl}/login) called with data:', ${JSON.stringify(data)}`);
     return this.http.post<AuthResponse>(`${this.apiUrl}/login`, data).pipe(
       tap(response => {
         this.setToken(response.accessToken);
