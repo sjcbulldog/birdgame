@@ -223,6 +223,8 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
           // Start dealing animation when transitioning to dealing state
           if (game.state === 'dealing') {
             this.startDealingAnimation();
+            // Reset trick counter for the new hand
+            this.lastCompletedTrickCount = 0;
           }
         } else if (!this.previousGameState) {
           console.log(`%cGAME STATE INITIALIZED: ${game.state}`, 
@@ -808,6 +810,11 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
 
     // Render scores in all game states
     this.renderScores();
+
+    // Render admin hover cards LAST so they appear on top of everything including trick cards
+    if (this.hoveredPlayerPosition && this.currentUser?.userType === 'admin') {
+      this.renderHoveredPlayerCards(this.hoveredPlayerPosition);
+    }
   }
 
   private renderPreGameScreen(): void {
@@ -2064,11 +2071,6 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       this.ctx.shadowBlur = 0;
       this.ctx.shadowOffsetX = 0;
       this.ctx.shadowOffsetY = 0;
-    }
-
-    // Render hovered player's cards if admin is hovering over an icon
-    if (this.hoveredPlayerPosition && this.currentUser?.userType === 'admin') {
-      this.renderHoveredPlayerCards(this.hoveredPlayerPosition);
     }
   }
 

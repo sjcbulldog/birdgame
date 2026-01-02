@@ -70,6 +70,7 @@ export class TablesService implements OnModuleInit {
 
   async findAllWithPlayersAndWatchers(): Promise<TableResponseDto[]> {
     const tables = await this.tableRepository.find({
+      relations: ['northPlayer', 'southPlayer', 'eastPlayer', 'westPlayer'],
       order: { tableNumber: 'ASC' },
     });
 
@@ -88,6 +89,9 @@ export class TablesService implements OnModuleInit {
       const activeGame = await this.gameService.getGameByTableId(table.id);
       const activeGameId = activeGame && activeGame.state !== 'complete' ? activeGame.id : undefined;
 
+      // Include playerTypes if there's an active game
+      const playerTypes = activeGame && activeGame.state !== 'complete' ? activeGame.playerTypes : undefined;
+
       tableDtos.push({
         id: table.id,
         tableNumber: table.tableNumber,
@@ -100,6 +104,7 @@ export class TablesService implements OnModuleInit {
         watcherCount,
         activeGameId,
         watchers: watchers.map(w => this.mapPlayerDto(w.user)),
+        playerTypes,
       });
     }
 
@@ -248,41 +253,6 @@ export class TablesService implements OnModuleInit {
 
     // Emit update via gateway
     if (this.gateway) {
-      this.gateway.emitTableUpdate();
-    }
-  }
-
-  private async removeUserFromAllTables(userId: string): Promise<void> {
-    const tables = await this.tableRepository.find();
-    let anyModified = false;
-    
-    for (const table of tables) {
-      let modified = false;
-      if (table.northPlayerId === userId) {
-        table.northPlayerId = null;
-        modified = true;
-      }
-      if (table.southPlayerId === userId) {
-        table.southPlayerId = null;
-        modified = true;
-      }
-      if (table.eastPlayerId === userId) {
-        table.eastPlayerId = null;
-        modified = true;
-      }
-      if (table.westPlayerId === userId) {
-        table.westPlayerId = null;
-        modified = true;
-      }
-      
-      if (modified) {
-        await this.tableRepository.save(table);
-        anyModified = true;
-      }
-    }
-    
-    // Emit update if any tables were modified
-    if (anyModified && this.gateway) {
       this.gateway.emitTableUpdate();
     }
   }
@@ -478,5 +448,69 @@ export class TablesService implements OnModuleInit {
       firstName: user.firstName,
       lastName: user.lastName,
     };
+  }
+
+  /**
+   * Remove a user from all tables and watcher positions (used for heartbeat timeout)
+   */
+  async removeUserFromAllTables(userId: string): Promise<void> {
+    const queryRunner = this.tableRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Remove user from all table positions
+      const allTables = await queryRunner.manager.find(Table);
+      let tablesModified = false;
+
+      for (const table of allTables) {
+        let modified = false;
+        if (table.northPlayerId === userId) {
+          table.northPlayerId = null;
+          table.northPlayer = null;
+          modified = true;
+        }
+        if (table.southPlayerId === userId) {
+          table.southPlayerId = null;
+          table.southPlayer = null;
+          modified = true;
+        }
+        if (table.eastPlayerId === userId) {
+          table.eastPlayerId = null;
+          table.eastPlayer = null;
+          modified = true;
+        }
+        if (table.westPlayerId === userId) {
+          table.westPlayerId = null;
+          table.westPlayer = null;
+          modified = true;
+        }
+
+        if (modified) {
+          await queryRunner.manager.save(table);
+          tablesModified = true;
+        }
+      }
+
+      // Remove user from all watcher positions
+      await queryRunner.manager
+        .createQueryBuilder()
+        .delete()
+        .from(TableWatcher)
+        .where('userId = :userId', { userId })
+        .execute();
+
+      await queryRunner.commitTransaction();
+
+      // Emit table update if any tables were modified
+      if (tablesModified && this.gateway) {
+        this.gateway.emitTableUpdate();
+      }
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 }

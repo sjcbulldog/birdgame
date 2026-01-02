@@ -357,12 +357,24 @@ export class AIPlayer {
       const trumps = this.getTrumpCards(playableCards);
       const nonTrumps = playableCards.filter(c => !this.isTrumpCard(c));
       
-      // Early game: exhaust trumps
+      // Count total trumps in hand
+      const totalTrumpsInHand = this.getTrumpCards(this.hand).length;
+      const hasRedOne = this.hand.some(c => c.color === 'red' && c.value === 1);
+      const hasBird = this.hand.some(c => c.color === 'bird');
+      
+      // Strong trump strategy: if 5+ trumps with red-1 and bird, lead high trumps to exhaust opponents
+      if (totalTrumpsInHand >= 5 && hasRedOne && hasBird && trumps.length > 0) {
+        // Lead highest trump first (red-1 > bird > regular trumps by value)
+        trumps.sort((a, b) => this.trumpValue(b) - this.trumpValue(a));
+        return trumps[0].id;
+      }
+      
+      // Early game: exhaust trumps with standard strategy
       if (tricksPlayed < 5 && trumps.length > 0) {
-        // Lead trumps, prefer non-point trumps to minimize loss
+        // If we still have non-point trumps, continue leading them to exhaust opponents
         const nonPointTrumps = trumps.filter(c => !this.isPointCard(c));
         if (nonPointTrumps.length > 0) {
-          // Lead lowest non-point trump
+          // Lead lowest non-point trump to minimize loss
           nonPointTrumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
           return nonPointTrumps[0].id;
         }
@@ -394,7 +406,14 @@ export class AIPlayer {
       const myTeamWinning = this.isMyTeam(trickWinner);
       
       if (myTeamWinning) {
-        // My team is winning, play lowest valid card
+        // My team is winning, dump 5/10 point cards to maximize points
+        const fiveAndTenCards = playableCards.filter(c => c.value === 5 || c.value === 10);
+        if (fiveAndTenCards.length > 0) {
+          // Play highest value (10 over 5)
+          fiveAndTenCards.sort((a, b) => b.value - a.value);
+          return fiveAndTenCards[0].id;
+        }
+        // No 5/10 cards, play lowest valid card
         playableCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
         return playableCards[0].id;
       } else {
@@ -405,7 +424,13 @@ export class AIPlayer {
           winningCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
           return winningCards[0].id;
         }
-        // Can't win, throw lowest card
+        // Can't win, avoid points and play lowest non-point card
+        const nonPointCards = playableCards.filter(c => !this.isPointCard(c));
+        if (nonPointCards.length > 0) {
+          nonPointCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+          return nonPointCards[0].id;
+        }
+        // Only point cards available, play lowest
         playableCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
         return playableCards[0].id;
       }
@@ -477,6 +502,58 @@ export class AIPlayer {
             }
           }
         }
+        
+        // If partner is winning, check if we should play 5/10 point cards or secure the trick
+        const currentWinner = this.getCurrentTrickWinner(currentTrick);
+        if (currentWinner === this.getPartner(this.position)) {
+          const winningCard = currentTrick.cards.find(c => c.player === currentWinner)!.card;
+          const leadSuit = currentTrick.leadSuit;
+          
+          // Check if we can play 5/10 point cards
+          const fiveAndTenCards = playableCards.filter(c => c.value === 5 || c.value === 10);
+          if (fiveAndTenCards.length > 0) {
+            // Play highest value (10 over 5)
+            fiveAndTenCards.sort((a, b) => b.value - a.value);
+            return fiveAndTenCards[0].id;
+          }
+          
+          // Only apply securing strategy for non-trump tricks if no 5/10 cards available
+          if (leadSuit && leadSuit !== this.trumpSuit && !this.isTrumpCard(winningCard)) {
+            // Check if we have cards that can beat the current winning card
+            const higherCards = playableCards.filter(c => {
+              // Must be same suit and higher value (or trump)
+              if (this.isTrumpCard(c)) return true;
+              if (c.color === leadSuit && c.value > winningCard.value) return true;
+              return false;
+            });
+            
+            if (higherCards.length > 0) {
+              // Play the lowest card that's still higher to secure the trick
+              higherCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+              return higherCards[0].id;
+            }
+          }
+        }
+      }
+      
+      // Check if opponents are winning and we can't beat them
+      const currentWinnerFinal = this.getCurrentTrickWinner(currentTrick);
+      const myTeamWinning = this.isMyTeam(currentWinnerFinal);
+      
+      if (!myTeamWinning) {
+        // Opponents winning, check if we can beat them
+        const canBeat = playableCards.some(c => this.canBeatTrick(c, currentTrick));
+        if (!canBeat) {
+          // Can't win, avoid points at all costs
+          const nonPointCards = playableCards.filter(c => !this.isPointCard(c));
+          if (nonPointCards.length > 0) {
+            nonPointCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+            return nonPointCards[0].id;
+          }
+          // Only point cards available, play lowest
+          playableCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+          return playableCards[0].id;
+        }
       }
       
       // Default: avoid points, play lowest
@@ -498,8 +575,15 @@ export class AIPlayer {
    */
   private playAsOpponent(playableCards: Card[], currentTrick: CurrentTrick, positionInOrder: number): string {
     if (positionInOrder === 0) {
-      // I'm leading, play highest card
-      playableCards.sort((a, b) => this.cardValue(b) - this.cardValue(a));
+      // I'm leading, avoid leading trump suit
+      const nonTrumpCards = playableCards.filter(c => !this.isTrumpCard(c));
+      if (nonTrumpCards.length > 0) {
+        // Play highest non-trump card
+        nonTrumpCards.sort((a, b) => b.value - a.value);
+        return nonTrumpCards[0].id;
+      }
+      // Only trump cards available, play lowest trump
+      playableCards.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
       return playableCards[0].id;
     } else {
       // I'm following
@@ -517,12 +601,38 @@ export class AIPlayer {
           winningCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
           return winningCards[0].id;
         } else {
-          // Can't win, check if cards played are likely not high cards
+          // Can't win, check for special case: bidder pulling trumps in early rounds
+          const tricksPlayed = this.completedTricks.length;
           const leadCard = currentTrick.cards[0].card;
+          const leadPlayer = currentTrick.cards[0].player;
+          const iAmOutOfTrump = !this.hand.some(c => this.isTrumpCard(c));
+          
+          // If first 3 rounds, bidder led trump, I'm out of trump, and it's not highest trump
+          if (tricksPlayed < 3 && 
+              leadPlayer === this.highBidder && 
+              this.isTrumpCard(leadCard) &&
+              iAmOutOfTrump &&
+              !this.isHighestOutstandingTrump(leadCard, currentTrick)) {
+            // Feed points hoping partner has higher trump to capture them
+            const pointCards = playableCards.filter(c => 
+              c.value === 10 || c.value === 5
+            );
+            if (pointCards.length > 0) {
+              // Play highest point card (10 over 5)
+              pointCards.sort((a, b) => b.value - a.value);
+              return pointCards[0].id;
+            }
+          }
+          
+          // Check if cards played are likely not high cards
           const cardsNotHigh = !this.isLikelyHighCard(leadCard, currentTrick);
           
-          if (cardsNotHigh) {
-            // Provide points for partner to collect
+          // Check if bidding team is currently winning (opponents to us)
+          const currentWinner = this.getCurrentTrickWinner(currentTrick);
+          const biddingTeamWinning = currentWinner === this.highBidder || currentWinner === this.getPartner(this.highBidder!);
+          
+          if (cardsNotHigh && !biddingTeamWinning) {
+            // Provide points for partner to collect only if bidding team isn't winning
             const pointCards = playableCards.filter(c => this.isPointCard(c));
             if (pointCards.length > 0) {
               pointCards.sort((a, b) => this.cardValue(b) - this.cardValue(a));
@@ -530,14 +640,32 @@ export class AIPlayer {
             }
           }
           
-          // Default: play lowest
+          // Default: avoid points, play lowest non-point card
+          const nonPointCards = playableCards.filter(c => !this.isPointCard(c));
+          if (nonPointCards.length > 0) {
+            nonPointCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+            return nonPointCards[0].id;
+          }
+          // Only point cards available, play lowest
           playableCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
           return playableCards[0].id;
         }
       } else {
         // Partner has played
         if (myTeamWinning) {
-          // Partner winning, throw lowest
+          // Partner winning, dump 5/10 point cards to maximize points
+          const fiveAndTenCards = playableCards.filter(c => c.value === 5 || c.value === 10);
+          if (fiveAndTenCards.length > 0) {
+            // Play highest value (10 over 5)
+            fiveAndTenCards.sort((a, b) => b.value - a.value);
+            return fiveAndTenCards[0].id;
+          }
+          // No 5/10 cards, throw lowest non-point card
+          const nonPointCards = playableCards.filter(c => !this.isPointCard(c));
+          if (nonPointCards.length > 0) {
+            nonPointCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+            return nonPointCards[0].id;
+          }
           playableCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
           return playableCards[0].id;
         } else {
@@ -547,7 +675,13 @@ export class AIPlayer {
             winningCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
             return winningCards[0].id;
           }
-          // Can't win, throw lowest
+          // Can't win, avoid points and play lowest non-point card
+          const nonPointCards = playableCards.filter(c => !this.isPointCard(c));
+          if (nonPointCards.length > 0) {
+            nonPointCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+            return nonPointCards[0].id;
+          }
+          // Only point cards available, play lowest
           playableCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
           return playableCards[0].id;
         }
@@ -721,6 +855,57 @@ export class AIPlayer {
   }
 
   /**
+   * Check if a trump card is the highest outstanding trump
+   * (considers red-1 > bird > regular trumps, and what's been played)
+   */
+  private isHighestOutstandingTrump(card: Card, trick: CurrentTrick): boolean {
+    if (!this.isTrumpCard(card)) return false;
+    
+    const cardTrumpValue = this.trumpValue(card);
+    
+    // Get all cards that have been played
+    const seenCards = [...this.completedTricks.flatMap(t => t.cards.map(c => c.card)), 
+                       ...trick.cards.map(c => c.card)];
+    
+    // Check if any higher trump is still outstanding (not seen and not in my hand)
+    const allTrumpCards = [
+      { color: 'red' as const, value: 1 },  // red-1 (trump value 100)
+      { color: 'bird' as const, value: 0 }, // bird (trump value 90)
+      ...Array.from({ length: 10 }, (_, i) => ({ color: this.trumpSuit!, value: 14 - i })) // 14 down to 5
+    ];
+    
+    for (const potentialTrump of allTrumpCards) {
+      const potentialValue = potentialTrump.color === 'red' && potentialTrump.value === 1 ? 100 :
+                             potentialTrump.color === 'bird' ? 90 :
+                             potentialTrump.value;
+      
+      if (potentialValue > cardTrumpValue) {
+        // This is a higher trump - check if it's outstanding
+        const hasBeenSeen = seenCards.some(c => 
+          (potentialTrump.color === 'bird' && c.color === 'bird') ||
+          (potentialTrump.color === 'red' && c.color === 'red' && c.value === 1) ||
+          (potentialTrump.color !== 'bird' && potentialTrump.color !== 'red' && 
+           c.color === potentialTrump.color && c.value === potentialTrump.value)
+        );
+        
+        const inMyHand = this.hand.some(c =>
+          (potentialTrump.color === 'bird' && c.color === 'bird') ||
+          (potentialTrump.color === 'red' && c.color === 'red' && c.value === 1) ||
+          (potentialTrump.color !== 'bird' && potentialTrump.color !== 'red' && 
+           c.color === potentialTrump.color && c.value === potentialTrump.value)
+        );
+        
+        if (!hasBeenSeen && !inMyHand) {
+          // Higher trump is still outstanding
+          return false;
+        }
+      }
+    }
+    
+    return true; // No higher trump is outstanding
+  }
+
+  /**
    * Evaluate trump potential for each suit
    * Returns suits ordered by strength (length + high cards + special cards)
    */
@@ -880,9 +1065,21 @@ export class AIPlayer {
     
     // Must follow suit if possible
     if (leadSuit) {
-      const cardsOfLeadSuit = this.hand.filter(c => c.color === leadSuit);
-      if (cardsOfLeadSuit.length > 0) {
-        return cardsOfLeadSuit;
+      // If lead suit is the trump suit, bird and red-1 are also valid
+      if (leadSuit === this.trumpSuit) {
+        const trumpCards = this.hand.filter(c => 
+          c.color === this.trumpSuit || 
+          c.color === 'bird' || 
+          (c.color === 'red' && c.value === 1)
+        );
+        if (trumpCards.length > 0) {
+          return trumpCards;
+        }
+      } else {
+        const cardsOfLeadSuit = this.hand.filter(c => c.color === leadSuit);
+        if (cardsOfLeadSuit.length > 0) {
+          return cardsOfLeadSuit;
+        }
       }
     }
 

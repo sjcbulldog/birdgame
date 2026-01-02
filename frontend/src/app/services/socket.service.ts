@@ -12,15 +12,21 @@ export class SocketService implements OnDestroy {
   private socket: Socket | null = null;
   private gameStateSubject = new Subject<any>();
   private playerReadyUpdateSubject = new Subject<{ playerReady: Record<string, boolean>; allReady: boolean }>();
+  private heartbeatInterval: any = null;
+  private userId: string | null = null;
 
   constructor(private router: Router) {
     // Don't initialize socket here - wait for explicit connection
   }
 
-  connect(token?: string): void {
+  connect(token?: string, userId?: string): void {
     if (this.socket?.connected) {
       console.log('Socket already connected');
       return; // Already connected
+    }
+
+    if (userId) {
+      this.userId = userId;
     }
 
     const auth = token ? { token } : {};
@@ -33,10 +39,12 @@ export class SocketService implements OnDestroy {
     // Set up event listeners
     this.socket.on('connect', () => {
       console.log('Socket connected');
+      this.startHeartbeat();
     });
 
     this.socket.on('disconnect', () => {
       console.log('Socket disconnected');
+      this.stopHeartbeat();
     });
 
     this.socket.on('error', (error: any) => {
@@ -54,11 +62,37 @@ export class SocketService implements OnDestroy {
     });
   }
 
+  private startHeartbeat(): void {
+    // Clear any existing interval
+    this.stopHeartbeat();
+    
+    // Send heartbeat every 15 seconds
+    this.heartbeatInterval = setInterval(() => {
+      if (this.socket?.connected && this.userId) {
+        this.socket.emit('heartbeat', { userId: this.userId });
+      }
+    }, 15000);
+
+    // Send initial heartbeat immediately
+    if (this.socket?.connected && this.userId) {
+      this.socket.emit('heartbeat', { userId: this.userId });
+    }
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
   disconnect(): void {
+    this.stopHeartbeat();
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
     }
+    this.userId = null;
   }
 
   // Table events
@@ -206,6 +240,7 @@ export class SocketService implements OnDestroy {
   }
 
   ngOnDestroy() {
+    this.stopHeartbeat();
     this.disconnect();
   }
 }

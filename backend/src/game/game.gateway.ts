@@ -5,20 +5,36 @@ import {
   MessageBody,
   ConnectedSocket,
 } from '@nestjs/websockets';
-import { OnModuleInit } from '@nestjs/common';
+import { OnModuleInit, Inject, forwardRef } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { GameService } from './game.service';
 import { PlayerPosition, Suit } from './entities/game.entity';
+import { HeartbeatService } from '../gateway/heartbeat.service';
 
 @WebSocketGateway({ cors: true })
 export class GameGateway implements OnModuleInit {
   @WebSocketServer()
   server: Server;
 
-  constructor(private readonly gameService: GameService) {}
+  constructor(
+    private readonly gameService: GameService,
+    @Inject(forwardRef(() => HeartbeatService))
+    private readonly heartbeatService: HeartbeatService,
+  ) {}
 
   onModuleInit() {
     this.gameService.setGateway(this);
+  }
+
+  @SubscribeMessage('heartbeat')
+  handleHeartbeat(
+    @MessageBody() data: { userId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    if (data.userId) {
+      this.heartbeatService.recordHeartbeat(data.userId, client.id);
+    }
+    return { event: 'heartbeat', data: { received: true } };
   }
 
   @SubscribeMessage('joinGame')

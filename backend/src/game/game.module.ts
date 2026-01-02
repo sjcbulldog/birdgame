@@ -6,11 +6,13 @@ import { GameGateway } from './game.gateway';
 import { Game } from './entities/game.entity';
 import { TablesModule } from '../tables/tables.module';
 import { UsersModule } from '../users/users.module';
+import { GatewayModule } from '../gateway/gateway.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Game]),
     forwardRef(() => TablesModule),
+    forwardRef(() => GatewayModule),
     UsersModule,
   ],
   controllers: [GameController],

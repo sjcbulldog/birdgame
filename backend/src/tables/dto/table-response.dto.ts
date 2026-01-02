@@ -4,6 +4,7 @@
   email: string;
   firstName?: string;
   lastName?: string;
+  playerType?: 'human' | 'computer';
 }
 
 export class TableResponseDto {
@@ -18,4 +19,5 @@ export class TableResponseDto {
   watcherCount: number;
   activeGameId?: string;
   watchers?: PlayerDto[];
+  playerTypes?: Record<string, 'human' | 'computer'>;
 }

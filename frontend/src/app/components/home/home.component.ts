@@ -178,7 +178,7 @@ export class HomeComponent implements OnInit {
   }
 
   getButtonText(table: Table): string {
-    return this.hasActiveGame(table) ? 'Continue' : 'Start';
+    return this.hasActiveGame(table) ? 'Rejoin' : 'Start';
   }
 
   logout(): void {
@@ -239,5 +239,9 @@ export class HomeComponent implements OnInit {
         setTimeout(() => this.errorMessage.set(null), 3000);
       }
     });
+  }
+
+  isComputerPlayer(table: Table, position: Position): boolean {
+    return table.playerTypes?.[position] === 'computer';
   }
 }

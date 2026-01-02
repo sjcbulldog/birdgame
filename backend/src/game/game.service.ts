@@ -537,6 +537,7 @@ export class GameService implements OnModuleInit {
 
       // Trigger computer player if lead player is computer
       if (game.playerTypes[game.highBidder] === 'computer') {
+        console.log('[DEBUG] After declareTrump - triggering computer play for high bidder:', game.highBidder);
         setTimeout(() => this.computerPlayCard(gameId), 750);
       }
 
@@ -724,10 +725,13 @@ export class GameService implements OnModuleInit {
         ? currentTrick.leadPlayer 
         : this.getNextPlayer(currentTrick.cards[currentTrick.cards.length - 1].player);
 
+      console.log('[DEBUG] After playCard - nextPlayer:', nextPlayer, 'playerType:', game.playerTypes[nextPlayer], 'trickLength:', currentTrick.cards.length);
+
       if (game.playerTypes[nextPlayer] === 'computer') {
         // If starting a new trick (currentTrick.cards.length === 0), wait for animation to complete (3s)
         // Otherwise, use normal delay (750ms)
         const delay = currentTrick.cards.length === 0 ? 3000 : 750;
+        console.log('[DEBUG] Scheduling computer play for', nextPlayer, 'in', delay, 'ms');
         setTimeout(() => this.computerPlayCard(gameId), delay);
       }
 
@@ -755,9 +759,32 @@ export class GameService implements OnModuleInit {
       // Use pre-calculated points from lastHandResult
       const northSouthPoints = game.lastHandResult?.northSouthPoints || 0;
       const eastWestPoints = game.lastHandResult?.eastWestPoints || 0;
+      const biddingTeam = game.lastHandResult?.biddingTeam;
+      const madeBid = game.lastHandResult?.madeBid || false;
+      const bidAmount = game.lastHandResult?.bid || 0;
 
-      game.northSouthScore += northSouthPoints;
-      game.eastWestScore += eastWestPoints;
+      // Apply scoring based on whether the bidding team made their bid
+      if (biddingTeam === 'northSouth') {
+        if (madeBid) {
+          // Bidding team made their bid - both teams get their points
+          game.northSouthScore += northSouthPoints;
+          game.eastWestScore += eastWestPoints;
+        } else {
+          // Bidding team failed - they lose their bid amount, opponents get their points
+          game.northSouthScore -= bidAmount;
+          game.eastWestScore += eastWestPoints;
+        }
+      } else if (biddingTeam === 'eastWest') {
+        if (madeBid) {
+          // Bidding team made their bid - both teams get their points
+          game.northSouthScore += northSouthPoints;
+          game.eastWestScore += eastWestPoints;
+        } else {
+          // Bidding team failed - they lose their bid amount, opponents get their points
+          game.northSouthScore += northSouthPoints;
+          game.eastWestScore -= bidAmount;
+        }
+      }
 
       // Check for winner
       if (game.northSouthScore >= 500 || game.eastWestScore >= 500) {
@@ -1084,6 +1111,8 @@ export class GameService implements OnModuleInit {
     currentTrick: GameStateData['currentTrick'], 
     trumpSuit: Suit | null
   ): void {
+    console.log('[DEBUG] validateCardPlay - card:', card, 'leadSuit:', currentTrick.leadSuit, 'trumpSuit:', trumpSuit, 'hand:', hand.map(c => `${c.color}-${c.value}`));
+    
     // If leading, any card is valid
     if (currentTrick.cards.length === 0) {
       return;
@@ -1094,6 +1123,7 @@ export class GameService implements OnModuleInit {
 
     // Special case: If red 1 or bird is led, must follow with trump suit if you have it
     if (((leadCard.color === 'red' && leadCard.value === 1) || leadCard.color === 'bird') && trumpSuit) {
+      console.log('[DEBUG] Red-1 or bird was led');
       const hasTrumpCards = hand.some(c => 
         c.color === trumpSuit || 
         c.color === 'bird' || 
@@ -1104,6 +1134,7 @@ export class GameService implements OnModuleInit {
         const isValidTrump = card.color === trumpSuit || 
                              card.color === 'bird' || 
                              (card.color === 'red' && card.value === 1);
+        console.log('[DEBUG] hasTrumpCards=true, isValidTrump=', isValidTrump);
         if (!isValidTrump) {
           throw new BadRequestException('Must follow with trump when red 1 or bird is led');
         }
@@ -1115,16 +1146,20 @@ export class GameService implements OnModuleInit {
     if (leadSuit) {
       // If lead suit is the trump suit, bird and red 1 are also valid plays
       if (leadSuit === trumpSuit) {
+        console.log('[DEBUG] Lead suit equals trump suit');
         const hasTrumpCards = hand.some(c => 
           c.color === trumpSuit || 
           c.color === 'bird' || 
           (c.color === 'red' && c.value === 1)
         );
         
+        console.log('[DEBUG] hasTrumpCards=', hasTrumpCards, 'card.color=', card.color);
+        
         if (hasTrumpCards) {
           const isValidTrump = card.color === trumpSuit || 
                                card.color === 'bird' || 
                                (card.color === 'red' && card.value === 1);
+          console.log('[DEBUG] isValidTrump=', isValidTrump);
           if (!isValidTrump) {
             throw new BadRequestException(`Must follow trump suit (${trumpSuit})`);
           }
@@ -1189,20 +1224,34 @@ export class GameService implements OnModuleInit {
   private async computerPlayCard(gameId: string): Promise<void> {
     try {
       const game = await this.getGame(gameId);
-      if (game.state !== GameState.PLAYING) return;
+      console.log('[DEBUG] computerPlayCard called - gameState:', game.state, 'gameId:', gameId);
+      
+      if (game.state !== GameState.PLAYING) {
+        console.log('[DEBUG] Game not in PLAYING state, returning');
+        return;
+      }
 
       const currentTrick = game.gameState.currentTrick;
       const player = currentTrick.cards.length === 0 
         ? currentTrick.leadPlayer 
         : this.getNextPlayer(currentTrick.cards[currentTrick.cards.length - 1].player);
 
-      const hand = game.gameState.hands[player];
-      if (hand.length === 0) return;
+      console.log('[DEBUG] Computer player:', player, 'leadPlayer:', currentTrick.leadPlayer, 'trickLength:', currentTrick.cards.length);
 
+      const hand = game.gameState.hands[player];
+      if (hand.length === 0) {
+        console.log('[DEBUG] Player hand is empty, returning');
+        return;
+      }
+
+      console.log('[DEBUG] Getting AI player for', player);
       const aiPlayer = this.getAIPlayer(gameId, player);
       const positionInOrder = currentTrick.cards.length;
+      
+      console.log('[DEBUG] AI player deciding card, positionInOrder:', positionInOrder);
       const cardId = aiPlayer.playCard(currentTrick, positionInOrder);
       
+      console.log('[DEBUG] AI chose card:', cardId, 'calling playCard...');
       await this.playCard(gameId, player, cardId);
     } catch (error) {
       console.error('Computer play error:', error);
