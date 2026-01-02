@@ -26,10 +26,56 @@
         [height]="819"
         class="card-canvas"
         (click)="onCanvasClick($event)"
+        (contextmenu)="onCanvasRightClick($event)"
         (mousemove)="onCanvasMouseMove($event)">
       </canvas>
     </div>
   </div>
+
+  <!-- Context Menu -->
+  @if (showContextMenu) {
+    <div class="context-menu" 
+         [style.left.px]="contextMenuX" 
+         [style.top.px]="contextMenuY"
+         (click)="$event.stopPropagation()">
+      @if (game && contextMenuPlayer && game.playerBRB && game.playerBRB[contextMenuPlayer]) {
+        <div class="context-menu-item" (click)="onIAmBack()">I am back</div>
+      } @else {
+        <div class="context-menu-item" (click)="onBeRightBack()">Be Right Back (brb)</div>
+      }
+      <div class="context-menu-item" (click)="onSay()">Say...</div>
+    </div>
+  }
+
+  <!-- Say Message Popup -->
+  @if (showSayMessagePopup) {
+    <div class="dialog-overlay" (click)="cancelSayMessage()">
+      <div class="dialog-content" (click)="$event.stopPropagation()">
+        <h2>Say Something</h2>
+        <input type="text" 
+               #sayInput
+               [(ngModel)]="sayMessageText" 
+               placeholder="Enter your message"
+               maxlength="100"
+               (keyup.enter)="confirmSayMessage()"
+               class="say-input">
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" (click)="cancelSayMessage()">Cancel</button>
+          <button class="btn btn-primary" (click)="confirmSayMessage()">Send</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Bid Winner Flash Message -->
+  @if (showBidWinnerMessage) {
+    <div class="bid-winner-flash">
+      <div class="bid-winner-content">
+        <h2>{{ bidWinnerName }} won the bid!</h2>
+        <p class="bid-amount">Bid: {{ bidWinnerAmount }}</p>
+      </div>
+    </div>
+  }
 
   <!-- Logout Confirmation Dialog -->
   @if (showLogoutDialog) {
@@ -210,3 +256,12 @@
       </div>
     </div>
   }
+  <!-- Got The Rest Button -->
+  @if (canShowGotTheRestButton) {
+    <div class="got-the-rest-panel">
+      <button class="btn-got-the-rest" (click)="onClaimGotTheRest()">
+        Got The Rest
+      </button>
+    </div>
+  }
+</div>

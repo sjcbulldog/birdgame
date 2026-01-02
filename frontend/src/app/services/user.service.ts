@@ -1,5 +1,7 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { Observable, of } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 export interface UserIcon {
   id: string;
@@ -7,10 +9,24 @@ export interface UserIcon {
   url: string;
 }
 
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  status: string;
+  userType: string;
+  createdAt: string;
+}
+
 @Injectable({
   providedIn: 'root'
 })
 export class UserService {
+  private http = inject(HttpClient);
+  private apiUrl = environment.apiUrl;
+
   private readonly defaultIcon: UserIcon = {
     id: 'default',
     name: 'Default User',
@@ -57,5 +73,19 @@ export class UserService {
     // TODO: In the future, update the user's icon in the backend
     // return this.http.put<UserIcon>(`${this.apiUrl}/users/${userId}/icon`, { iconId });
     throw new Error('Icon selection not yet implemented');
+  }
+
+  /**
+   * Gets all users (admin only)
+   */
+  getAllUsers(): Observable<User[]> {
+    return this.http.get<User[]>(`${this.apiUrl}/users`);
+  }
+
+  /**
+   * Updates a user's type (admin only)
+   */
+  updateUserType(userId: string, userType: string): Observable<User> {
+    return this.http.put<User>(`${this.apiUrl}/users/${userId}/user-type`, { userType });
   }
 }

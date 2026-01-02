@@ -11,6 +11,7 @@ import { GameService } from './game.service';
 import { PlayerPosition, Suit } from './entities/game.entity';
 import { HeartbeatService } from '../gateway/heartbeat.service';
 import { TablesGateway } from '../gateway/tables.gateway';
+import { UsersService } from '../users/users.service';
 
 @WebSocketGateway({ cors: true })
 export class GameGateway implements OnModuleInit {
@@ -23,10 +24,32 @@ export class GameGateway implements OnModuleInit {
     private readonly heartbeatService: HeartbeatService,
     @Inject(forwardRef(() => TablesGateway))
     private readonly tablesGateway: TablesGateway,
+    @Inject(forwardRef(() => UsersService))
+    private readonly usersService: UsersService,
   ) {}
 
   onModuleInit() {
     this.gameService.setGateway(this);
+  }
+
+  private async checkUserBanned(gameId: string, player: PlayerPosition, client: Socket): Promise<boolean> {
+    try {
+      const game = await this.gameService.getGame(gameId);
+      const userId = game.table[`${player}Player`]?.id;
+      
+      if (userId) {
+        const user = await this.usersService.findById(userId);
+        if (user && user.userType === 'banned') {
+          // Emit error to client and disconnect
+          client.emit('error', { message: 'You have been banned from this site.' });
+          client.disconnect(true);
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error('Error checking banned status:', error);
+    }
+    return false;
   }
 
   @SubscribeMessage('heartbeat')
@@ -60,7 +83,10 @@ export class GameGateway implements OnModuleInit {
   @SubscribeMessage('playerReady')
   async handlePlayerReady(
     @MessageBody() data: { gameId: string; player: PlayerPosition },
+    @ConnectedSocket() client: Socket,
   ) {
+    if (await this.checkUserBanned(data.gameId, data.player, client)) return;
+    
     const { game, allReady } = await this.gameService.setPlayerReady(data.gameId, data.player);
     
     // Broadcast updated ready state to all players
@@ -93,7 +119,10 @@ export class GameGateway implements OnModuleInit {
   @SubscribeMessage('placeBid')
   async handlePlaceBid(
     @MessageBody() data: { gameId: string; player: PlayerPosition; bid: number | 'pass' | 'check' },
+    @ConnectedSocket() client: Socket,
   ) {
+    if (await this.checkUserBanned(data.gameId, data.player, client)) return;
+    
     const game = await this.gameService.placeBid(data.gameId, data.player, data.bid);
     return { event: 'bidPlaced', data: game };
   }
@@ -101,7 +130,10 @@ export class GameGateway implements OnModuleInit {
   @SubscribeMessage('selectCards')
   async handleSelectCards(
     @MessageBody() data: { gameId: string; player: PlayerPosition; selectedCardIds: string[] },
+    @ConnectedSocket() client: Socket,
   ) {
+    if (await this.checkUserBanned(data.gameId, data.player, client)) return;
+    
     const game = await this.gameService.selectNineCards(data.gameId, data.player, data.selectedCardIds);
     return { event: 'cardsSelected', data: game };
   }
@@ -109,7 +141,10 @@ export class GameGateway implements OnModuleInit {
   @SubscribeMessage('declareTrump')
   async handleDeclareTrump(
     @MessageBody() data: { gameId: string; player: PlayerPosition; trumpSuit: Suit },
+    @ConnectedSocket() client: Socket,
   ) {
+    if (await this.checkUserBanned(data.gameId, data.player, client)) return;
+    
     const game = await this.gameService.declareTrump(data.gameId, data.player, data.trumpSuit);
     return { event: 'trumpDeclared', data: game };
   }
@@ -117,9 +152,39 @@ export class GameGateway implements OnModuleInit {
   @SubscribeMessage('playCard')
   async handlePlayCard(
     @MessageBody() data: { gameId: string; player: PlayerPosition; cardId: string },
+    @ConnectedSocket() client: Socket,
   ) {
+    if (await this.checkUserBanned(data.gameId, data.player, client)) return;
+    
     const game = await this.gameService.playCard(data.gameId, data.player, data.cardId);
     return { event: 'cardPlayed', data: game };
+  }
+
+  @SubscribeMessage('toggleBRB')
+  async handleToggleBRB(
+    @MessageBody() data: { gameId: string; player: PlayerPosition },
+  ) {
+    const game = await this.gameService.togglePlayerBRB(data.gameId, data.player);
+    return { event: 'brbToggled', data: game };
+  }
+
+  @SubscribeMessage('sayMessage')
+  async handleSayMessage(
+    @MessageBody() data: { gameId: string; player: PlayerPosition; message: string },
+  ) {
+    const game = await this.gameService.setPlayerMessage(data.gameId, data.player, data.message);
+    return { event: 'messageSent', data: game };
+  }
+
+  @SubscribeMessage('claimGotTheRest')
+  async handleClaimGotTheRest(
+    @MessageBody() data: { gameId: string; player: PlayerPosition },
+    @ConnectedSocket() client: Socket,
+  ) {
+    if (await this.checkUserBanned(data.gameId, data.player, client)) return;
+    
+    const game = await this.gameService.claimGotTheRest(data.gameId, data.player);
+    return { event: 'gotTheRestClaimed', data: game };
   }
 
   async emitGameUpdate(gameId: string) {

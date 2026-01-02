@@ -69,6 +69,12 @@ export class Game {
   scoringReady: Record<PlayerPosition, boolean>;
 
   @Column({ type: 'json', nullable: true })
+  playerBRB: Record<PlayerPosition, boolean>;
+
+  @Column({ type: 'json', nullable: true })
+  playerMessages: Record<PlayerPosition, { text: string; timestamp: number } | null>;
+
+  @Column({ type: 'json', nullable: true })
   gameState: any;
 
   @Column({ type: 'json', nullable: true })

@@ -44,11 +44,11 @@ export class TableService {
     return this.http.get(`${environment.apiUrl}/games/${gameId}`);
   }
 
-  getPreferences(): Observable<{ tableCount: number; dealAnimationTime: number }> {
-    return this.http.get<{ tableCount: number; dealAnimationTime: number }>(`${this.apiUrl}/preferences`);
+  getPreferences(): Observable<{ tableCount: number; dealAnimationTime: number; trickAnimationTime: number; trickDisplayDelay: number; bidWinnerMessageTime: number }> {
+    return this.http.get<{ tableCount: number; dealAnimationTime: number; trickAnimationTime: number; trickDisplayDelay: number; bidWinnerMessageTime: number }>(`${this.apiUrl}/preferences`);
   }
 
-  setPreferences(preferences: { tableCount: number; dealAnimationTime: number }): Observable<void> {
+  setPreferences(preferences: { tableCount: number; dealAnimationTime: number; trickAnimationTime: number; trickDisplayDelay: number; bidWinnerMessageTime: number }): Observable<void> {
     return this.http.post<void>(`${this.apiUrl}/preferences`, preferences);
   }
 }

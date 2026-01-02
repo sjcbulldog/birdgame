@@ -458,13 +458,16 @@ export class TablesService implements OnModuleInit {
     return preferences;
   }
 
-  async setPreferences(updates: { tableCount?: number; dealAnimationTime?: number }): Promise<void> {
+  async setPreferences(updates: { tableCount?: number; dealAnimationTime?: number; trickAnimationTime?: number; trickDisplayDelay?: number; bidWinnerMessageTime?: number }): Promise<void> {
     let preferences = await this.preferencesRepository.findOne({ where: {} });
     
     if (!preferences) {
       preferences = this.preferencesRepository.create({
         tableCount: 3,
         dealAnimationTime: 10000,
+        trickAnimationTime: 1000,
+        trickDisplayDelay: 2000,
+        bidWinnerMessageTime: 1000,
       });
     }
     
@@ -475,6 +478,18 @@ export class TablesService implements OnModuleInit {
     
     if (updates.dealAnimationTime !== undefined) {
       preferences.dealAnimationTime = updates.dealAnimationTime;
+    }
+    
+    if (updates.trickAnimationTime !== undefined) {
+      preferences.trickAnimationTime = updates.trickAnimationTime;
+    }
+    
+    if (updates.trickDisplayDelay !== undefined) {
+      preferences.trickDisplayDelay = updates.trickDisplayDelay;
+    }
+    
+    if (updates.bidWinnerMessageTime !== undefined) {
+      preferences.bidWinnerMessageTime = updates.bidWinnerMessageTime;
     }
     
     await this.preferencesRepository.save(preferences);

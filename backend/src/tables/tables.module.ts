@@ -11,7 +11,7 @@ import { GameModule } from '../game/game.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Table, TableWatcher, SitePreferences]),
-    UsersModule,
+    forwardRef(() => UsersModule),
     forwardRef(() => GameModule),
   ],
   controllers: [TablesController],

@@ -22,6 +22,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!user) {
       throw new UnauthorizedException();
     }
+    
+    // Check if user is banned
+    if (user.userType === 'banned') {
+      throw new UnauthorizedException('You have been banned from this site. Please contact support if you believe this is an error.');
+    }
+    
+    // Check if user account is disabled
+    if (user.status === 'disabled') {
+      throw new UnauthorizedException('This account has been disabled');
+    }
+    
     return { userId: payload.sub, email: payload.email, userType: user.userType };
   }
 }

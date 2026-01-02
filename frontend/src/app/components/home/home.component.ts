@@ -1,9 +1,10 @@
-import { Component, OnInit, signal, inject } from '@angular/core';
+import { Component, OnInit, signal, inject, ChangeDetectorRef } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../services/auth.service';
 import { TableService } from '../../services/table.service';
 import { SocketService } from '../../services/socket.service';
+import { UserService, User as UserProfile } from '../../services/user.service';
 import { User } from '../../models/auth.model';
 import { Table, Position } from '../../models/table.model';
 
@@ -17,15 +18,28 @@ export class HomeComponent implements OnInit {
   private authService = inject(AuthService);
   private tableService = inject(TableService);
   private socketService = inject(SocketService);
+  private userService = inject(UserService);
   private router = inject(Router);
+  private cdr = inject(ChangeDetectorRef);
 
   currentUser: User | null = null;
   tables = signal<Table[]>([]);
+  loggedInUsers = signal<Array<{ id: string; username: string }>>([]);
   errorMessage = signal<string | null>(null);
   showMenu = false;
   showPreferencesDialog = false;
+  showAttributionsDialog = false;
+  showUsersDialog = false;
   tableCount = 3;
   dealAnimationTime = 10000;
+  trickAnimationTime = 1000;
+  trickDisplayDelay = 2000;
+  bidWinnerMessageTime = 1000;
+  
+  // User management
+  allUsers: UserProfile[] = [];
+  filteredUsers: UserProfile[] = [];
+  userSearchText = '';
 
   ngOnInit(): void {
     this.authService.currentUser$.subscribe(user => {
@@ -38,6 +52,11 @@ export class HomeComponent implements OnInit {
     // Subscribe to real-time updates
     this.socketService.onTableUpdated().subscribe(tables => {
       this.tables.set(tables);
+    });
+
+    // Subscribe to logged-in users updates
+    this.socketService.onLoggedInUsersUpdated().subscribe(users => {
+      this.loggedInUsers.set(users);
     });
 
     // Subscribe to game started events - navigate only if the user is part of that table
@@ -145,16 +164,24 @@ export class HomeComponent implements OnInit {
   }
 
   onWatchTable(tableId: string): void {
-    this.tableService.watchTable(tableId).subscribe({
-      next: () => {
-        // Success - WebSocket will update the view
-      },
-      error: (error) => {
-        console.error('Error watching table:', error);
-        this.errorMessage.set('Failed to watch table');
-        setTimeout(() => this.errorMessage.set(null), 3000);
-      }
-    });
+    const table = this.tables().find(t => t.id === tableId);
+    
+    // If table has an active game, navigate to watcher view
+    if (table && table.activeGameId) {
+      this.router.navigate(['/watch', table.activeGameId]);
+    } else {
+      // Otherwise just add as watcher to the table
+      this.tableService.watchTable(tableId).subscribe({
+        next: () => {
+          // Success - WebSocket will update the view
+        },
+        error: (error) => {
+          console.error('Error watching table:', error);
+          this.errorMessage.set('Failed to watch table');
+          setTimeout(() => this.errorMessage.set(null), 3000);
+        }
+      });
+    }
   }
 
   isUserAtTable(table: Table): boolean {
@@ -205,17 +232,31 @@ export class HomeComponent implements OnInit {
 
   openPreferences(): void {
     this.showMenu = false;
-    this.showPreferencesDialog = true;
-    // Load current preferences
+    // Load current preferences before showing dialog
     this.tableService.getPreferences().subscribe({
       next: (prefs) => {
         this.tableCount = prefs.tableCount;
         this.dealAnimationTime = prefs.dealAnimationTime;
+        this.trickAnimationTime = prefs.trickAnimationTime;
+        this.trickDisplayDelay = prefs.trickDisplayDelay;
+        this.bidWinnerMessageTime = prefs.bidWinnerMessageTime;
+        // Use setTimeout to ensure change detection picks this up
+        setTimeout(() => {
+          this.showPreferencesDialog = true;
+          this.cdr.detectChanges();
+        }, 0);
       },
       error: (error) => {
         console.error('Error loading preferences:', error);
         this.tableCount = this.tables().length;
         this.dealAnimationTime = 10000;
+        this.trickAnimationTime = 1000;
+        this.trickDisplayDelay = 2000;
+        this.bidWinnerMessageTime = 1000;
+        setTimeout(() => {
+          this.showPreferencesDialog = true;
+          this.cdr.detectChanges();
+        }, 0);
       }
     });
   }
@@ -224,7 +265,22 @@ export class HomeComponent implements OnInit {
     this.showPreferencesDialog = false;
   }
 
+  showAttributions(): void {
+    this.showAttributionsDialog = true;
+  }
+
+  closeAttributions(): void {
+    this.showAttributionsDialog = false;
+  }
+
   savePreferences(): void {
+    // Ensure all values are numbers
+    this.tableCount = Number(this.tableCount);
+    this.dealAnimationTime = Number(this.dealAnimationTime);
+    this.trickAnimationTime = Number(this.trickAnimationTime);
+    this.trickDisplayDelay = Number(this.trickDisplayDelay);
+    this.bidWinnerMessageTime = Number(this.bidWinnerMessageTime);
+
     if (this.tableCount < 3 || this.tableCount > 36) {
       this.errorMessage.set('Table count must be between 3 and 36');
       setTimeout(() => this.errorMessage.set(null), 3000);
@@ -237,9 +293,30 @@ export class HomeComponent implements OnInit {
       return;
     }
 
+    if (this.trickAnimationTime < 500 || this.trickAnimationTime > 5000) {
+      this.errorMessage.set('Trick animation time must be between 500 and 5000 milliseconds');
+      setTimeout(() => this.errorMessage.set(null), 3000);
+      return;
+    }
+
+    if (this.trickDisplayDelay < 500 || this.trickDisplayDelay > 10000) {
+      this.errorMessage.set('Trick display delay must be between 500 and 10000 milliseconds');
+      setTimeout(() => this.errorMessage.set(null), 3000);
+      return;
+    }
+
+    if (this.bidWinnerMessageTime < 10 || this.bidWinnerMessageTime > 10000) {
+      this.errorMessage.set('Bid winner message time must be between 10 and 10000 milliseconds');
+      setTimeout(() => this.errorMessage.set(null), 3000);
+      return;
+    }
+
     this.tableService.setPreferences({
       tableCount: this.tableCount,
-      dealAnimationTime: this.dealAnimationTime
+      dealAnimationTime: this.dealAnimationTime,
+      trickAnimationTime: this.trickAnimationTime,
+      trickDisplayDelay: this.trickDisplayDelay,
+      bidWinnerMessageTime: this.bidWinnerMessageTime
     }).subscribe({
       next: () => {
         this.showPreferencesDialog = false;
@@ -277,5 +354,79 @@ export class HomeComponent implements OnInit {
       return table.playerNames?.[position] || 'Computer';
     }
     return '';
+  }
+
+  isAdmin(): boolean {
+    return this.currentUser?.userType === 'admin';
+  }
+
+  openUsersDialog(): void {
+    this.showMenu = false;
+    this.userSearchText = '';
+    this.userService.getAllUsers().subscribe({
+      next: (users) => {
+        this.allUsers = users;
+        this.filteredUsers = users;
+        // Use setTimeout to ensure change detection picks this up
+        setTimeout(() => {
+          this.showUsersDialog = true;
+          this.cdr.detectChanges();
+        }, 0);
+      },
+      error: (error) => {
+        console.error('Error loading users:', error);
+        this.errorMessage.set('Failed to load users');
+        setTimeout(() => this.errorMessage.set(null), 3000);
+      }
+    });
+  }
+
+  closeUsersDialog(): void {
+    this.showUsersDialog = false;
+  }
+
+  filterUsers(): void {
+    const searchText = this.userSearchText.toLowerCase();
+    this.filteredUsers = this.allUsers.filter(user => 
+      user.username.toLowerCase().includes(searchText) ||
+      user.email.toLowerCase().includes(searchText) ||
+      (user.firstName && user.firstName.toLowerCase().includes(searchText)) ||
+      (user.lastName && user.lastName.toLowerCase().includes(searchText))
+    );
+  }
+
+  updateUserType(user: UserProfile, newType: string): void {
+    this.userService.updateUserType(user.id, newType).subscribe({
+      next: (updatedUser) => {
+        // Update in both arrays
+        const allIndex = this.allUsers.findIndex(u => u.id === user.id);
+        if (allIndex !== -1) {
+          this.allUsers[allIndex] = updatedUser;
+        }
+        const filteredIndex = this.filteredUsers.findIndex(u => u.id === user.id);
+        if (filteredIndex !== -1) {
+          this.filteredUsers[filteredIndex] = updatedUser;
+        }
+      },
+      error: (error) => {
+        console.error('Error updating user type:', error);
+        this.errorMessage.set('Failed to update user type');
+        setTimeout(() => this.errorMessage.set(null), 3000);
+      }
+    });
+  }
+
+  getUserTypeClass(userType: string): string {
+    switch(userType) {
+      case 'admin': return 'user-type-admin';
+      case 'banned': return 'user-type-banned';
+      case 'pending': return 'user-type-pending';
+      default: return 'user-type-normal';
+    }
+  }
+
+  formatDate(dateString: string): string {
+    const date = new Date(dateString);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
   }
 }
