@@ -249,29 +249,52 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
             completedTricksCount > this.lastCompletedTrickCount) {
           const lastCompletedTrick = game.gameState.completedTricks[completedTricksCount - 1];
           
+          console.log(`%cTRICK COMPLETED: ${lastCompletedTrick.cards.length} cards`, 'color: #ff00ff; font-weight: bold;');
+          console.log('Trick cards:', lastCompletedTrick.cards.map((c: any) => `${c.player}: ${c.card.color} ${c.card.value}`).join(', '));
+          
           // Clear any existing animation
           this.animatingTrickToWonPile = null;
           
-          this.displayingCompletedTrick = {
-            cards: [...lastCompletedTrick.cards], // Make a copy to ensure immutability
-            winner: lastCompletedTrick.winner
-          };
-          this.lastCompletedTrickCount = completedTricksCount;
-          
-          // After 2 seconds, start animation to won pile
-          setTimeout(() => {
-            if (this.displayingCompletedTrick) {
-              const trickToAnimate = this.displayingCompletedTrick;
-              this.displayingCompletedTrick = null;
-              this.animatingTrickToWonPile = {
-                cards: trickToAnimate.cards,
-                winner: trickToAnimate.winner,
-                progress: 0,
-                startTime: Date.now()
-              };
-              this.animateTrickToWonPile();
+          // Make sure we have exactly 4 cards before displaying
+          if (lastCompletedTrick.cards.length === 4) {
+            this.displayingCompletedTrick = {
+              cards: [...lastCompletedTrick.cards], // Make a copy to ensure immutability
+              winner: lastCompletedTrick.winner
+            };
+            this.lastCompletedTrickCount = completedTricksCount;
+            
+            // Update game state AFTER setting displayingCompletedTrick
+            // This ensures we render the completed trick, not the new empty currentTrick
+            this.game = game;
+            this.playerReadyState = game.playerReady || {};
+            this.updateGameStateText();
+            
+            // Render immediately to show all 4 cards
+            if (this.ctx) {
+              this.renderTable();
             }
-          }, this.TRICK_DISPLAY_DELAY);
+            
+            // After 2 seconds, start animation to won pile
+            setTimeout(() => {
+              if (this.displayingCompletedTrick) {
+                const trickToAnimate = this.displayingCompletedTrick;
+                this.displayingCompletedTrick = null;
+                this.animatingTrickToWonPile = {
+                  cards: trickToAnimate.cards,
+                  winner: trickToAnimate.winner,
+                  progress: 0,
+                  startTime: Date.now()
+                };
+                this.animateTrickToWonPile();
+              }
+            }, this.TRICK_DISPLAY_DELAY);
+            
+            // Skip the normal game state update at the bottom
+            return;
+          } else {
+            console.warn(`Trick completed with ${lastCompletedTrick.cards.length} cards instead of 4`);
+            this.lastCompletedTrickCount = completedTricksCount;
+          }
         }
         
         this.game = game;
@@ -2482,11 +2505,14 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     if (this.animatingTrickToWonPile) {
       cardsToRender = this.animatingTrickToWonPile.cards;
       isAnimatingToWonPile = true;
+      console.log(`Rendering animating trick: ${cardsToRender.length} cards`);
     } else if (this.displayingCompletedTrick) {
       cardsToRender = this.displayingCompletedTrick.cards;
+      console.log(`Rendering completed trick display: ${cardsToRender.length} cards`);
     } else {
       cardsToRender = this.game.gameState.currentTrick.cards;
       if (cardsToRender.length > 0) {
+        console.log(`Rendering current trick: ${cardsToRender.length} cards`);
       }
     }
 
