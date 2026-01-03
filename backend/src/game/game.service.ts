@@ -1309,6 +1309,9 @@ export class GameService implements OnModuleInit {
       const game = await this.getGame(gameId);
       if (game.state !== GameState.BIDDING) return;
 
+      // Ensure AI player is initialized with current game state
+      await this.initializeAIPlayers(game);
+
       const aiPlayer = this.getAIPlayer(gameId, game.currentBidder);
       const bid = aiPlayer.placeBid(game.highBid, game.gameState.biddingHistory);
       
@@ -1322,6 +1325,9 @@ export class GameService implements OnModuleInit {
     try {
       const game = await this.getGame(gameId);
       if (game.state !== GameState.SELECTING || !game.highBidder) return;
+
+      // Ensure AI player is initialized with current game state
+      await this.initializeAIPlayers(game);
 
       const aiPlayer = this.getAIPlayer(gameId, game.highBidder);
       const centerPileCards = [...game.gameState.centerPile.faceDown];
@@ -1340,6 +1346,9 @@ export class GameService implements OnModuleInit {
     try {
       const game = await this.getGame(gameId);
       if (game.state !== GameState.DECLARING_TRUMP || !game.highBidder) return;
+
+      // Ensure AI player is initialized with current game state
+      await this.initializeAIPlayers(game);
 
       const aiPlayer = this.getAIPlayer(gameId, game.highBidder);
       const trumpSuit = aiPlayer.declareTrump();
@@ -1366,6 +1375,9 @@ export class GameService implements OnModuleInit {
       if (hand.length === 0) {
         return;
       }
+
+      // Ensure AI player is initialized with current game state
+      await this.initializeAIPlayers(game);
 
       const aiPlayer = this.getAIPlayer(gameId, player);
       const positionInOrder = currentTrick.cards.length;

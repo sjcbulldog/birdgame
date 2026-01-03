@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { PlayerPosition, Suit } from './entities/game.entity';
 
 export interface Card {
@@ -19,6 +20,7 @@ export interface CurrentTrick {
 }
 
 export class AIPlayer {
+  private readonly logger = new Logger(AIPlayer.name);
   private position: PlayerPosition;
   private hand: Card[];
   private centerPileTopCard: Card | null;
@@ -1158,34 +1160,48 @@ export class AIPlayer {
       throw new Error('centerPileTopCard should not be null during bidding phase');
     }
     
+    this.logger.debug(`[${this.position}] findMaxBid: Starting bid calculation`);
     let maxbid = 150 ;
+    let extra = 0 ;
     let c: Card ;
 
     let cards = [...this.hand, this.centerPileTopCard] ;
+    this.logger.debug(`[${this.position}] findMaxBid:   Starting bid = ${maxbid}`);
+    
     c = cards.find(c => c?.color === 'red' && c?.value === 1) ;
     if (c === undefined) {
+      this.logger.debug(`[${this.position}] findMaxBid:   No red 1 found, -40 points`);
       maxbid -= 40 ;
+    } else {
+      extra++ ;
+      this.logger.debug(`[${this.position}] findMaxBid:   Red 1 found, no penalty`);
     }
 
     c = cards.find(c => c?.color === 'bird') ;
     if (c === undefined) {
+      this.logger.debug(`[${this.position}] findMaxBid:   No bird found, -30 points`);
       maxbid -= 30 ;
+    } else {
+      extra++ ;
+      this.logger.debug(`[${this.position}] findMaxBid:   Bird found, no penalty`);
     }
 
     let suit = this.longestSuitInHand(cards as Card[]) ;
-    maxbid -= (9 - suit.length) * 10 ;
+    const suitPenalty = (5 - suit.length - extra) * 10;
+    this.logger.debug(`[${this.position}] findMaxBid:   Longest suit (${suit[0]?.color}) has ${suit.length} cards, penalty = -${suitPenalty}`);
+    maxbid -= suitPenalty ;
 
     // Now lets assume our partner can help allievate some of our weakness
     let c14s = cards.filter(c => c?.color != suit[0].color && c.value === 14) ;
-    maxbid += c14s.length * 10 ;
+    const fourteensBonus = c14s.length * 10;
+    this.logger.debug(`[${this.position}] findMaxBid:   Found ${c14s.length} 14s in other suits, bonus = +${fourteensBonus}`);
+    maxbid += fourteensBonus ;
 
     // Assume some help from our partner
+    this.logger.debug(`[${this.position}] findMaxBid:   Partner help bonus = +10`);
     maxbid += 10 ;
 
-    if (maxbid > 110) {
-      maxbid = 110 ;
-    }
-
+    this.logger.debug(`[${this.position}] findMaxBid:   Final max bid = ${maxbid}`);
     return maxbid ;
   }
 
