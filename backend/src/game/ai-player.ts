@@ -184,8 +184,8 @@ export class AIPlayer {
    * Strategy:
    * 1. Keep ALL trump cards (including bird/red-1 if trump-colored)
    * 2. Keep ALL 14s (unbeatable when trumps exhausted)
-   * 3. Keep maximum contiguous runs from 14 down in off-suits
-   * 4. Aggressively void weak suits (1-3 cards if trump 6+, else 1-2 cards)
+   * 3. Minimize number of suits - consolidate cards into fewer suits
+   * 4. Prefer keeping multiple cards in same suit over spreading across suits
    * 5. Prefer non-point cards over point cards to stash points in discards for last trick
    */
   selectCards(centerPileCards: Card[]): string[] {
@@ -211,7 +211,7 @@ export class AIPlayer {
       if (idx >= 0) cardsRemaining.splice(idx, 1);
     });
     
-    // Phase 3: Keep ALL 14s regardless of suit
+    // Phase 3: Keep ALL 14s regardless of suit (these are unbeatable when trumps exhausted)
     const fourteens = cardsRemaining.filter(card => card.value === 14);
     cardsToKeep.push(...fourteens);
     fourteens.forEach(card => {
@@ -219,83 +219,74 @@ export class AIPlayer {
       if (idx >= 0) cardsRemaining.splice(idx, 1);
     });
     
-    // Phase 4: Keep contiguous runs from 14 down in off-suits
-    const offSuits = (['red', 'black', 'green', 'yellow'] as Suit[])
-      .filter(suit => suit !== bestTrumpSuit);
+    // Phase 4: For remaining slots, minimize number of suits
+    // Group remaining cards by suit and evaluate each suit's value
+    const spaceLeft = 9 - cardsToKeep.length;
     
-    for (const suit of offSuits) {
-      const run = this.findContiguousRunFromFourteen(cardsRemaining, suit);
-      if (run.length > 0) {
-        // Only keep runs if we have space, but prioritize longer runs
-        const spaceLeft = 9 - cardsToKeep.length;
-        const runToKeep = run.slice(0, Math.min(run.length, spaceLeft));
-        cardsToKeep.push(...runToKeep);
-        runToKeep.forEach(card => {
+    if (spaceLeft > 0) {
+      const offSuits = (['red', 'black', 'green', 'yellow'] as Suit[])
+        .filter(suit => suit !== bestTrumpSuit);
+      
+      // Evaluate each suit and score it for keeping
+      const suitEvaluations = offSuits.map(suit => {
+        const suitCards = cardsRemaining.filter(c => c.color === suit);
+        if (suitCards.length === 0) return null;
+        
+        // Sort cards in suit by value descending
+        suitCards.sort((a, b) => b.value - a.value);
+        
+        // Calculate suit strength score
+        let score = 0;
+        // Bonus for having multiple cards in suit (consolidation bonus)
+        score += suitCards.length * 10;
+        // Bonus for high cards
+        suitCards.forEach((card, idx) => {
+          if (card.value === 13) score += 15; // 13s are very strong
+          else if (card.value >= 11) score += 10; // High cards
+          else if (card.value >= 9) score += 5;  // Medium cards
+          // Small penalty for keeping low point cards
+          if (this.isPointCard(card)) score -= 2;
+        });
+        // Bonus for having a 14 in this suit (already kept above, but impacts strategy)
+        const has14 = fourteens.some(c => c.color === suit);
+        if (has14) score += 20;
+        
+        return { suit, cards: suitCards, score };
+      }).filter(e => e !== null) as Array<{ suit: Suit; cards: Card[]; score: number }>;
+      
+      // Sort suits by score (best suits first)
+      suitEvaluations.sort((a, b) => b.score - a.score);
+      
+      // Keep cards from the best suits until we fill our hand
+      let cardsAdded = 0;
+      for (const evaluation of suitEvaluations) {
+        if (cardsAdded >= spaceLeft) break;
+        
+        // How many cards from this suit should we keep?
+        const cardsToTake = Math.min(evaluation.cards.length, spaceLeft - cardsAdded);
+        
+        // Prefer keeping higher cards, but keep all cards if it creates a void
+        if (cardsToTake === evaluation.cards.length) {
+          // Keep all cards in this suit
+          cardsToKeep.push(...evaluation.cards);
+          cardsAdded += evaluation.cards.length;
+        } else {
+          // Can only take some cards - prefer high cards, but avoid point cards if possible
+          const nonPointCards = evaluation.cards.filter(c => !this.isPointCard(c));
+          const pointCards = evaluation.cards.filter(c => this.isPointCard(c));
+          
+          // Take non-point cards first
+          const toAdd = [...nonPointCards, ...pointCards].slice(0, cardsToTake);
+          cardsToKeep.push(...toAdd);
+          cardsAdded += toAdd.length;
+        }
+        
+        // Remove added cards from remaining
+        cardsToKeep.forEach(card => {
           const idx = cardsRemaining.findIndex(c => c.id === card.id);
           if (idx >= 0) cardsRemaining.splice(idx, 1);
         });
       }
-    }
-    
-    // Phase 5: Fill remaining slots, voiding weak suits and preferring non-point cards
-    const trumpCount = trumpCards.length;
-    const voidThreshold = trumpCount >= 6 ? 3 : 2; // Void 1-3 cards if trump 6+, else 1-2
-    
-    // Analyze remaining cards by suit
-    const suitGroups: Record<string, Card[]> = {};
-    for (const card of cardsRemaining) {
-      const suit = card.color;
-      if (!suitGroups[suit]) suitGroups[suit] = [];
-      suitGroups[suit].push(card);
-    }
-    
-    // Separate cards into void candidates and keepers
-    const voidCandidates: Card[] = [];
-    const keeperCandidates: Card[] = [];
-    
-    for (const suit in suitGroups) {
-      const suitCards = suitGroups[suit];
-      if (suitCards.length <= voidThreshold) {
-        // Void this weak suit - prefer discarding point cards
-        voidCandidates.push(...suitCards.sort((a, b) => {
-          const aPoints = this.isPointCard(a);
-          const bPoints = this.isPointCard(b);
-          if (aPoints && !bPoints) return -1; // Discard point cards first
-          if (!aPoints && bPoints) return 1;
-          return b.value - a.value; // Then by value
-        }));
-      } else {
-        keeperCandidates.push(...suitCards);
-      }
-    }
-    
-    // Fill remaining slots with keeper candidates, preferring non-point cards
-    const spaceLeft = 9 - cardsToKeep.length;
-    if (spaceLeft > 0 && keeperCandidates.length > 0) {
-      // Sort: non-point cards first, then by value
-      keeperCandidates.sort((a, b) => {
-        const aPoints = this.isPointCard(a);
-        const bPoints = this.isPointCard(b);
-        if (!aPoints && bPoints) return -1; // Keep non-point cards
-        if (aPoints && !bPoints) return 1;
-        return b.value - a.value; // Then by value
-      });
-      
-      cardsToKeep.push(...keeperCandidates.slice(0, spaceLeft));
-    }
-    
-    // If still need more cards, take from void candidates (shouldn't happen often)
-    const finalSpaceLeft = 9 - cardsToKeep.length;
-    if (finalSpaceLeft > 0 && voidCandidates.length > 0) {
-      // Prefer keeping non-point cards even from void candidates
-      voidCandidates.sort((a, b) => {
-        const aPoints = this.isPointCard(a);
-        const bPoints = this.isPointCard(b);
-        if (!aPoints && bPoints) return -1;
-        if (aPoints && !bPoints) return 1;
-        return b.value - a.value;
-      });
-      cardsToKeep.push(...voidCandidates.slice(0, finalSpaceLeft));
     }
     
     return cardsToKeep.slice(0, 9).map(c => c.id);
