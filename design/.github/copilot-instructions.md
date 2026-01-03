@@ -20,7 +20,7 @@ This is a web-based implementation of a four-player card game called "Birds" (al
 - Card deck composition (42 cards: red/black/green/yellow 5-14, plus bird card and red 1)
 - Player partnerships (N/S vs E/W)
 - Dealing sequence (specific 5-round + 4-round + 1-card pattern)
-- Bidding rules (60 minimum, 5-point increments, "check" only if partner is high bidder)
+- Bidding rules (70 minimum, 5-point increments, "check" only if partner is high bidder)
 - Trump mechanics
 - Trick-taking rules
 - Scoring system (card point values, team scoring, 500-point win condition)
@@ -159,5 +159,5 @@ States cycle through DEALING → BIDDING → ... → SCORING for each hand until
 - Computer players participate in all game phases automatically
 - Pre-game lobby requires all human players to click "Start Game"
 - Cards dealt in specific pattern per RULES.md - don't deviate
-- Bidding increments are exactly 5 points, minimum 60
+- Bidding increments are exactly 5 points, minimum 70
 - "Check" bid only valid if partner is current high bidder

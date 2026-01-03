@@ -23,6 +23,9 @@ export class HeartbeatService {
     private tablesService: TablesService,
     private usersService: UsersService,
   ) {
+    // Clear all heartbeats on server restart
+    this.clearAllHeartbeats();
+    
     // Start cleanup interval for stale connections
     this.cleanupInterval = setInterval(() => {
       this.checkForStaleConnections();
@@ -39,6 +42,14 @@ export class HeartbeatService {
    */
   setGateway(gateway: any): void {
     this.gateway = gateway;
+  }
+
+  /**
+   * Clear all heartbeats on server restart
+   */
+  clearAllHeartbeats(): void {
+    this.logger.log('Clearing all heartbeats on server restart');
+    this.heartbeats.clear();
   }
 
   /**

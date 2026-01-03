@@ -11,10 +11,13 @@ Add an watchers view.  It is basically the same as the game view, but the user c
 
 # In Progress
 
+When in the game view, if I am ready to lead the first cards in a new trick, and I own the bid, and no one else has trumps, and all of the non-trump cards I have are the highest, the display a 'Got The Rest' button to the right of the players hand. Note, non-trump cards could be a run like 14, 13, 12 or could be a set of 14s.  Non-trump cards should also be holding a 13 knowing the 14 has already been played.  Non-trump could also be holding a 12 knowing the 14 and 13 have both been played.  Basically if the non-trump cards the user is holding are the highest cards out in that color.
+
 # Todo List
+
+Improve AI play
 
 Animate played cards from the users hand to the middle
 
 Mobile site play
 
-When in the game view, if I am ready to lead the first cards in a new trick, and I own the bid, and no one else has trumps, and all of the non-trump cards I have are the highest, the display a 'Got The Rest' button to the right of the players hand. Note, non-trump cards could be a run like 14, 13, 12 or could be a set of 14s.  Non-trump cards should also be holding a 13 knowing the 14 has already been played.  Non-trump could also be holding a 12 knowing the 14 and 13 have both been played.  Basically if the non-trump cards the user is holding are the highest cards out in that color.
