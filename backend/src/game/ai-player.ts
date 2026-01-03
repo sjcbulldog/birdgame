@@ -167,7 +167,12 @@ export class AIPlayer {
     }
     else {
       if (currentBid === null) {
-        bid = maxBid ;
+        if (maxBid >= 100) {
+          bid = 100 ;
+        }
+        else {
+          bid = maxBid ;
+        }
       }
       else {
         if (typeof currentBid === 'number' && currentBid + 5 <= maxBid) {
@@ -1366,15 +1371,11 @@ export class AIPlayer {
     this.logger.debug(`[${this.position}] findMaxBid:   Longest suit (${suit[0]?.color}) has ${suit.length} cards, penalty = -${suitPenalty}`);
     maxbid -= suitPenalty ;
 
-    // Now lets assume our partner can help allievate some of our weakness
+    // 14 for off suits help
     let c14s = cards.filter(c => c?.color != suit[0].color && c.value === 14) ;
     const fourteensBonus = c14s.length * 10;
     this.logger.debug(`[${this.position}] findMaxBid:   Found ${c14s.length} 14s in other suits, bonus = +${fourteensBonus}`);
     maxbid += fourteensBonus ;
-
-    // Assume some help from our partner
-    this.logger.debug(`[${this.position}] findMaxBid:   Partner help bonus = +10`);
-    maxbid += 10 ;
 
     this.logger.debug(`[${this.position}] findMaxBid:   Final max bid = ${maxbid}`);
     return maxbid ;

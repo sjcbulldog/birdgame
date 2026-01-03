@@ -435,6 +435,23 @@ export class GameService implements OnModuleInit {
         }
       }
 
+      // Special case: If someone just checked and both opponents have passed,
+      // the next bidder should be the partner (high bidder) who gets one more chance
+      let nextBidderOverride: PlayerPosition | null = null;
+      if (bid === 'check' && game.highBidder) {
+        const partner = this.getPartner(player);
+        const opponents: PlayerPosition[] = (['north', 'south', 'east', 'west'] as PlayerPosition[])
+          .filter(p => p !== player && p !== partner);
+        
+        // Check if both opponents have passed
+        const bothOpponentsPassed = opponents.every(opp => passedPlayers.has(opp));
+        
+        if (bothOpponentsPassed) {
+          // Next bidder should be the partner (high bidder), giving them a chance to pass or overbid
+          nextBidderOverride = partner;
+        }
+      }
+
       // Check if bidding is complete (only one player hasn't passed, or all passed)
       const activePlayers = (['north', 'south', 'east', 'west'] as PlayerPosition[]).filter(
         p => !passedPlayers.has(p)
@@ -468,7 +485,8 @@ export class GameService implements OnModuleInit {
       }
 
       // Move to next bidder (skip players who have passed)
-      game.currentBidder = this.getNextActiveBidder(player, passedPlayers);
+      // Use override if set (for check scenario where both opponents passed)
+      game.currentBidder = nextBidderOverride || this.getNextActiveBidder(player, passedPlayers);
 
       const savedGame = await queryRunner.manager.save(game);
       await queryRunner.commitTransaction();
