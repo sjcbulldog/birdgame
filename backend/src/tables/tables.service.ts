@@ -1,4 +1,4 @@
-﻿import { Injectable, OnModuleInit, BadRequestException, forwardRef, Inject } from '@nestjs/common';
+﻿import { Injectable, OnModuleInit, BadRequestException, forwardRef, Inject, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { Table } from './entities/table.entity';
@@ -11,6 +11,7 @@ import { GameService } from '../game/game.service';
 
 @Injectable()
 export class TablesService implements OnModuleInit {
+  private readonly logger = new Logger(TablesService.name);
   private gateway: any;
 
   constructor(
@@ -29,6 +30,8 @@ export class TablesService implements OnModuleInit {
   }
 
   async onModuleInit() {
+    // Clear all users from tables on server restart
+    await this.clearAllUsersFromTables();
     await this.initializeTables();
   }
 
@@ -36,6 +39,36 @@ export class TablesService implements OnModuleInit {
     const count = await this.tableRepository.count();
     if (count === 0) {
       await this.ensureMinimumEmptyTables(3);
+    }
+  }
+
+  /**
+   * Clear all users from all tables on server restart
+   */
+  async clearAllUsersFromTables(): Promise<void> {
+    try {
+      // Update all tables to remove players using query builder
+      await this.tableRepository
+        .createQueryBuilder()
+        .update(Table)
+        .set({
+          northPlayerId: null,
+          southPlayerId: null,
+          eastPlayerId: null,
+          westPlayerId: null,
+        })
+        .execute();
+
+      // Delete all watchers using query builder
+      await this.watcherRepository
+        .createQueryBuilder()
+        .delete()
+        .from(TableWatcher)
+        .execute();
+
+      this.logger.log('Cleared all users from tables on server restart');
+    } catch (error) {
+      this.logger.error('Error clearing users from tables:', error);
     }
   }
 

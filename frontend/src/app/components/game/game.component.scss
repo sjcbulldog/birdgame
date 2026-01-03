@@ -207,6 +207,7 @@
   align-items: center;
   justify-content: center;
   padding: 10px 20px;
+  position: relative;
 }
 
 .card-table {
@@ -851,10 +852,12 @@
 
 // Got The Rest Button
 .got-the-rest-panel {
-  position: fixed;
-  right: 40px;
-  bottom: 200px;
+  position: absolute;
+  left: calc(50% + 896px / 2 + 30px); // Position to the right of the canvas (896px wide) plus 30px margin
+  top: 50%;
+  transform: translateY(-50%);
   z-index: 1500;
+  pointer-events: all;
 
   .btn-got-the-rest {
     padding: 16px 32px;

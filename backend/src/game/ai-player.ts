@@ -27,6 +27,7 @@ export class AIPlayer {
   private trumpSuit: Suit | null;
   private selectedTrumpSuit: Suit | null;
   private highBidder: PlayerPosition | null;
+  private bidderRevealedSuits: Set<Suit>; // Track non-trump suits the bidder has played
 
   constructor(position: PlayerPosition) {
     this.position = position;
@@ -37,6 +38,7 @@ export class AIPlayer {
     this.trumpSuit = null;
     this.selectedTrumpSuit = null;
     this.highBidder = null;
+    this.bidderRevealedSuits = new Set();
   }
 
   /**
@@ -65,6 +67,20 @@ export class AIPlayer {
    */
   updateCompletedTricks(tricks: CompletedTrick[]): void {
     this.completedTricks = [...tricks];
+    // Track non-trump suits the bidder has played
+    if (this.highBidder && this.trumpSuit) {
+      for (const trick of tricks) {
+        for (const cardPlay of trick.cards) {
+          if (cardPlay.player === this.highBidder) {
+            const card = cardPlay.card;
+            // Track if bidder played a non-trump card
+            if (!this.isTrumpCard(card) && card.color !== 'bird') {
+              this.bidderRevealedSuits.add(card.color as Suit);
+            }
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -102,9 +118,9 @@ export class AIPlayer {
     let bid : number | 'pass' | 'check' = 'pass' ;
 
     const maxBid = this.findMaxBid();
-    if (maxBid < 60) {
+    if (maxBid < 70) {
       if (currentBid === null) {
-        bid = 60 ;
+        bid = 70 ;
       }
       else if (typeof currentBid === 'number' && currentBid < 80) {
         bid = 80 ;
@@ -360,33 +376,32 @@ export class AIPlayer {
       const totalTrumpsInHand = this.getTrumpCards(this.hand).length;
       const hasRedOne = this.hand.some(c => c.color === 'red' && c.value === 1);
       const hasBird = this.hand.some(c => c.color === 'bird');
+      const has14Trump = this.hand.some(c => c.value === 14 && this.isTrumpCard(c));
       
-      // Strong trump strategy: if 5+ trumps with red-1 and bird, lead high trumps to exhaust opponents
-      if (totalTrumpsInHand >= 5 && hasRedOne && hasBird && trumps.length > 0) {
-        // First, lead guaranteed high trumps: red 1, bird, and any other highest outstanding trumps
+      // Strong trump strategy: if red-1, bird, and 14, lead them in order to pull trumps
+      if (hasRedOne && hasBird && has14Trump && trumps.length > 0) {
+        // First, lead red 1 (highest trump)
         const redOne = trumps.find(c => c.color === 'red' && c.value === 1);
         if (redOne) {
           return redOne.id;
         }
         
+        // Second, lead bird
         const bird = trumps.find(c => c.color === 'bird');
         if (bird) {
           return bird.id;
         }
         
-        // Check for other guaranteed high trumps (14s where no higher card of same color remains)
-        const regularTrumps = trumps.filter(c => c.color !== 'red' || c.value !== 1).filter(c => c.color !== 'bird');
-        for (const trump of regularTrumps) {
-          if (this.isHighestOutstandingTrump(trump, currentTrick)) {
-            // This is a guaranteed high trump, lead it
-            return trump.id;
-          }
+        // Third, lead 14 of trump suit
+        const trump14 = trumps.find(c => c.value === 14);
+        if (trump14) {
+          return trump14.id;
         }
         
-        // No more guaranteed high trumps, lead highest non-point trump to pull remaining trumps
+        // After leading red-1, bird, and 14, continue with any other trumps
+        // Lead highest non-point trump to pull remaining trumps
         const nonPointTrumps = trumps.filter(c => !this.isPointCard(c));
         if (nonPointTrumps.length > 0) {
-          // Lead highest non-point trump
           nonPointTrumps.sort((a, b) => this.trumpValue(b) - this.trumpValue(a));
           return nonPointTrumps[0].id;
         }
@@ -496,7 +511,13 @@ export class AIPlayer {
     }
     
     if (positionInOrder === 0) {
-      // I'm leading, play lowest valid card
+      // I'm leading - play highest non-trump card
+      const nonTrumpCards = playableCards.filter(c => !this.isTrumpCard(c));
+      if (nonTrumpCards.length > 0) {
+        nonTrumpCards.sort((a, b) => this.cardValue(b) - this.cardValue(a));
+        return nonTrumpCards[0].id;
+      }
+      // Only trump cards available, play lowest trump
       playableCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
       return playableCards[0].id;
     } else {
@@ -664,6 +685,21 @@ export class AIPlayer {
             if (pointCards.length > 0) {
               pointCards.sort((a, b) => this.cardValue(b) - this.cardValue(a));
               return pointCards[0].id;
+            }
+          }
+          
+          // Check if we cannot follow suit and should apply smart discard logic
+          const leadSuit = currentTrick.leadSuit;
+          const canFollowSuit = leadSuit ? playableCards.some(c => 
+            (leadSuit === this.trumpSuit && this.isTrumpCard(c)) ||
+            (c.color === leadSuit && !(c.color === 'red' && c.value === 1))
+          ) : true;
+          
+          if (!canFollowSuit) {
+            // Cannot follow suit - apply smart discard logic
+            const discardChoice = this.selectSmartDiscard(playableCards);
+            if (discardChoice) {
+              return discardChoice;
             }
           }
           
@@ -882,6 +918,80 @@ export class AIPlayer {
   }
 
   /**
+   * Select a smart discard when opponent cannot follow suit
+   * Strategy:
+   * - If we have 12+ in a suit the bidder has revealed, keep it and discard another suit
+   * - If we only have low cards in a revealed suit, discard from that suit to void it
+   */
+  private selectSmartDiscard(playableCards: Card[]): string | null {
+    if (this.bidderRevealedSuits.size === 0) {
+      return null; // No information about bidder's suits yet
+    }
+
+    // Categorize our hand by suit
+    const cardsBySuit = new Map<Suit, Card[]>();
+    for (const card of playableCards) {
+      if (!this.isTrumpCard(card) && card.color !== 'bird') {
+        const suit = card.color as Suit;
+        if (!cardsBySuit.has(suit)) {
+          cardsBySuit.set(suit, []);
+        }
+        cardsBySuit.get(suit)!.push(card);
+      }
+    }
+
+    // Check suits the bidder has revealed
+    const revealedSuitsInHand: Array<{ suit: Suit; cards: Card[]; maxValue: number }> = [];
+    const otherSuitsInHand: Array<{ suit: Suit; cards: Card[] }> = [];
+
+    for (const [suit, cards] of cardsBySuit.entries()) {
+      const maxValue = Math.max(...cards.map(c => c.value));
+      if (this.bidderRevealedSuits.has(suit)) {
+        revealedSuitsInHand.push({ suit, cards, maxValue });
+      } else {
+        otherSuitsInHand.push({ suit, cards });
+      }
+    }
+
+    // Strategy: Keep high cards (12+) in revealed suits, void weak revealed suits
+    for (const revealed of revealedSuitsInHand) {
+      if (revealed.maxValue >= 12) {
+        // We have high card(s) in this revealed suit - keep them
+        // Try to discard from other suits instead
+        for (const other of otherSuitsInHand) {
+          // Prefer voiding short suits (1-3 cards)
+          if (other.cards.length <= 3) {
+            // Discard lowest card from this suit
+            const sortedCards = [...other.cards].sort((a, b) => this.cardValue(a) - this.cardValue(b));
+            // Prefer non-point cards
+            const nonPoint = sortedCards.find(c => !this.isPointCard(c));
+            if (nonPoint) return nonPoint.id;
+            return sortedCards[0].id;
+          }
+        }
+        // If no short suits in other colors, discard from any other suit
+        if (otherSuitsInHand.length > 0) {
+          const otherCards = otherSuitsInHand.flatMap(s => s.cards);
+          otherCards.sort((a, b) => this.cardValue(a) - this.cardValue(b));
+          const nonPoint = otherCards.find(c => !this.isPointCard(c));
+          if (nonPoint) return nonPoint.id;
+          return otherCards[0].id;
+        }
+      } else {
+        // We only have low cards in this revealed suit - void it
+        // Discard lowest card from this suit
+        const sortedCards = [...revealed.cards].sort((a, b) => this.cardValue(a) - this.cardValue(b));
+        // Prefer non-point cards
+        const nonPoint = sortedCards.find(c => !this.isPointCard(c));
+        if (nonPoint) return nonPoint.id;
+        return sortedCards[0].id;
+      }
+    }
+
+    return null; // No smart discard decision, use default logic
+  }
+
+  /**
    * Check if a trump card is the highest outstanding trump
    * (considers red-1 > bird > regular trumps, and what's been played)
    */
@@ -1064,6 +1174,17 @@ export class AIPlayer {
 
     let suit = this.longestSuitInHand(cards as Card[]) ;
     maxbid -= (9 - suit.length) * 10 ;
+
+    // Now lets assume our partner can help allievate some of our weakness
+    let c14s = cards.filter(c => c?.color != suit[0].color && c.value === 14) ;
+    maxbid += c14s.length * 10 ;
+
+    // Assume some help from our partner
+    maxbid += 10 ;
+
+    if (maxbid > 110) {
+      maxbid = 110 ;
+    }
 
     return maxbid ;
   }

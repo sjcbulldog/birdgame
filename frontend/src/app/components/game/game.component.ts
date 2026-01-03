@@ -106,7 +106,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   gameStateText = '';
   
   // Bidding UI state
-  selectedBidAmount: number = 60;
+  selectedBidAmount: number = 70;
   isSubmittingBid = false;
   
   // Scoring popup
@@ -1410,7 +1410,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   getMinBid(): number {
-    return this.game?.highBid ? this.game.highBid + 5 : 60;
+    return this.game?.highBid ? this.game.highBid + 5 : 70;
   }
 
   getMaxBid(): number {

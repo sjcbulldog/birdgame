@@ -379,8 +379,8 @@ export class GameService implements OnModuleInit {
 
       // Validate bid
       if (typeof bid === 'number') {
-        if (bid < 60 || bid % 5 !== 0) {
-          throw new BadRequestException('Bid must be at least 60 and in multiples of 5');
+        if (bid < 70 || bid % 5 !== 0) {
+          throw new BadRequestException('Bid must be at least 70 and in multiples of 5');
         }
         if (game.highBid && bid <= game.highBid) {
           throw new BadRequestException('Bid must be higher than current high bid');

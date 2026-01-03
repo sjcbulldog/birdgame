@@ -34,6 +34,15 @@
         (mousemove)="!isWatcherMode && onCanvasMouseMove($event)">
       </canvas>
     </div>
+    
+    <!-- Got The Rest Button -->
+    @if (canShowGotTheRestButton && !isWatcherMode) {
+      <div class="got-the-rest-panel">
+        <button class="btn-got-the-rest" (click)="onClaimGotTheRest()">
+          Got The Rest
+        </button>
+      </div>
+    }
   </div>
 
   <!-- Context Menu -->
@@ -133,7 +142,7 @@
         @if (game?.highBid) {
           <p>Current High Bid: <strong>{{ game?.highBid }}</strong></p>
         } @else {
-          <p>No bids yet - starting at 60</p>
+          <p>No bids yet - starting at 70</p>
         }
       </div>
       
@@ -274,14 +283,6 @@
           Yellow
         </button>
       </div>
-    </div>
-  }
-  <!-- Got The Rest Button -->
-  @if (canShowGotTheRestButton && !isWatcherMode) {
-    <div class="got-the-rest-panel">
-      <button class="btn-got-the-rest" (click)="onClaimGotTheRest()">
-        Got The Rest
-      </button>
     </div>
   }
 </div>
