@@ -119,6 +119,40 @@ export class AIPlayer {
   placeBid(currentBid: number | null, biddingHistory: Array<{ player: PlayerPosition; bid: number | 'pass' | 'check' }>): number | 'pass' | 'check' {
     let bid : number | 'pass' | 'check' = 'pass' ;
 
+    // Check if my partner has the current high bid
+    const partner = this.getPartner(this.position);
+    let partnerHasHighBid = false;
+    
+    if (currentBid !== null && typeof currentBid === 'number') {
+      // Find who placed the current high bid
+      for (let i = biddingHistory.length - 1; i >= 0; i--) {
+        const entry = biddingHistory[i];
+        if (typeof entry.bid === 'number' && entry.bid === currentBid) {
+          if (entry.player === partner) {
+            partnerHasHighBid = true;
+            this.logger.debug(`[${this.position}] Partner ${partner} has the current high bid of ${currentBid}`);
+          }
+          break; // Found who placed current bid
+        }
+      }
+    }
+    
+    // Check if both opponents have passed
+    const opponents = this.getOpponents(this.position);
+    const bothOpponentsPassed = this.haveBothOpponentsPassed(opponents, biddingHistory);
+    
+    // Special case: If partner has high bid and both opponents passed, pass to end bidding
+    if (partnerHasHighBid && bothOpponentsPassed) {
+      this.logger.debug(`[${this.position}] Partner has high bid and both opponents passed, passing to end bidding`);
+      return 'pass';
+    }
+    
+    // If partner has the high bid (but opponents haven't both passed), don't overbid - just check
+    if (partnerHasHighBid) {
+      this.logger.debug(`[${this.position}] Not overbidding partner, bidding check`);
+      return 'check';
+    }
+
     const maxBid = this.findMaxBid();
     if (maxBid < 70) {
       if (currentBid === null) {
@@ -359,10 +393,13 @@ export class AIPlayer {
 
   /**
    * Strategy for the bidder (won the bid)
-   * 1. Exhaust trumps from other players while minimizing point loss
-   * 2. Play non-trump cards after exhausting trumps
-   * 3. Regain control with trumps if opponents win a trick
-   * 4. Save a trump for the last trick (unless no points in discard)
+   * 1. Pull trumps by leading highest trump when I have it
+   * 2. Special case: if 5+ trumps including red-1, lead red-1
+   * 3. Continue leading highest trump until opponents are out of trumps
+   * 4. Exhaust trumps from other players while minimizing point loss
+   * 5. Play non-trump cards after exhausting trumps
+   * 6. Regain control with trumps if opponents win a trick
+   * 7. Save a trump for the last trick (unless no points in discard)
    */
   private playAsBidder(playableCards: Card[], currentTrick: CurrentTrick, positionInOrder: number): string {
     const tricksPlayed = this.completedTricks.length;
@@ -377,40 +414,22 @@ export class AIPlayer {
       // Count total trumps in hand
       const totalTrumpsInHand = this.getTrumpCards(this.hand).length;
       const hasRedOne = this.hand.some(c => c.color === 'red' && c.value === 1);
-      const hasBird = this.hand.some(c => c.color === 'bird');
-      const has14Trump = this.hand.some(c => c.value === 14 && this.isTrumpCard(c));
       
-      // Strong trump strategy: if red-1, bird, and 14, lead them in order to pull trumps
-      if (hasRedOne && hasBird && has14Trump && trumps.length > 0) {
-        // First, lead red 1 (highest trump)
+      // STRATEGY 1: If I have 5+ trumps including red-1, play red-1 to pull trumps
+      if (totalTrumpsInHand >= 5 && hasRedOne) {
         const redOne = trumps.find(c => c.color === 'red' && c.value === 1);
         if (redOne) {
+          this.logger.debug(`[${this.position}] Bidder has ${totalTrumpsInHand} trumps including red-1, leading red-1 to pull trumps`);
           return redOne.id;
         }
-        
-        // Second, lead bird
-        const bird = trumps.find(c => c.color === 'bird');
-        if (bird) {
-          return bird.id;
-        }
-        
-        // Third, lead 14 of trump suit
-        const trump14 = trumps.find(c => c.value === 14);
-        if (trump14) {
-          return trump14.id;
-        }
-        
-        // After leading red-1, bird, and 14, continue with any other trumps
-        // Lead highest non-point trump to pull remaining trumps
-        const nonPointTrumps = trumps.filter(c => !this.isPointCard(c));
-        if (nonPointTrumps.length > 0) {
-          nonPointTrumps.sort((a, b) => this.trumpValue(b) - this.trumpValue(a));
-          return nonPointTrumps[0].id;
-        }
-        
-        // All remaining trumps are point cards, lead highest
-        trumps.sort((a, b) => this.trumpValue(b) - this.trumpValue(a));
-        return trumps[0].id;
+      }
+      
+      // STRATEGY 2: If I have the highest unplayed trump, lead it to pull trumps
+      // This will continue each trick as long as I keep having the highest trump
+      const highestTrump = this.getHighestUnplayedTrumpIfIHaveIt();
+      if (highestTrump && trumps.some(t => t.id === highestTrump.id)) {
+        this.logger.debug(`[${this.position}] Bidder has highest unplayed trump ${highestTrump.color}-${highestTrump.value}, leading it to pull trumps`);
+        return highestTrump.id;
       }
       
       // Early game: exhaust trumps with standard strategy
@@ -768,6 +787,39 @@ export class AIPlayer {
   }
 
   /**
+   * Get opponent positions
+   */
+  private getOpponents(position: PlayerPosition): [PlayerPosition, PlayerPosition] {
+    const allPositions: PlayerPosition[] = ['north', 'south', 'east', 'west'];
+    const partner = this.getPartner(position);
+    const opponents = allPositions.filter(p => p !== position && p !== partner);
+    return [opponents[0], opponents[1]];
+  }
+
+  /**
+   * Check if both opponents have passed in the bidding
+   */
+  private haveBothOpponentsPassed(opponents: [PlayerPosition, PlayerPosition], biddingHistory: Array<{ player: PlayerPosition; bid: number | 'pass' | 'check' }>): boolean {
+    // Get the most recent bid for each opponent
+    const opponent1LastBid = this.getLastBidForPlayer(opponents[0], biddingHistory);
+    const opponent2LastBid = this.getLastBidForPlayer(opponents[1], biddingHistory);
+    
+    return opponent1LastBid === 'pass' && opponent2LastBid === 'pass';
+  }
+
+  /**
+   * Get the last bid made by a specific player
+   */
+  private getLastBidForPlayer(player: PlayerPosition, biddingHistory: Array<{ player: PlayerPosition; bid: number | 'pass' | 'check' }>): number | 'pass' | 'check' | null {
+    for (let i = biddingHistory.length - 1; i >= 0; i--) {
+      if (biddingHistory[i].player === player) {
+        return biddingHistory[i].bid;
+      }
+    }
+    return null; // Player hasn't bid yet
+  }
+
+  /**
    * Check if position is on my team
    */
   private isMyTeam(position: PlayerPosition): boolean {
@@ -991,6 +1043,105 @@ export class AIPlayer {
     }
 
     return null; // No smart discard decision, use default logic
+  }
+
+  /**
+   * Get the highest unplayed trump if I have it in my hand
+   * Returns the card if I have it, otherwise null
+   */
+  private getHighestUnplayedTrumpIfIHaveIt(): Card | null {
+    if (!this.trumpSuit) return null;
+    
+    // Get all cards that have been played
+    const seenCards = this.completedTricks.flatMap(t => t.cards.map(c => c.card));
+    
+    // Build list of all possible trump cards in order (highest to lowest)
+    const allPossibleTrumps = [
+      { color: 'red' as const, value: 1 },  // red-1 (trump value 100)
+      { color: 'bird' as const, value: 0 }, // bird (trump value 90)
+      ...Array.from({ length: 10 }, (_, i) => ({ color: this.trumpSuit!, value: 14 - i })) // 14 down to 5
+    ];
+    
+    // Find the highest unplayed trump
+    for (const potentialTrump of allPossibleTrumps) {
+      const hasBeenPlayed = seenCards.some(c => 
+        (potentialTrump.color === 'bird' && c.color === 'bird') ||
+        (potentialTrump.color === 'red' && c.color === 'red' && c.value === 1) ||
+        (potentialTrump.color !== 'bird' && potentialTrump.color !== 'red' && 
+         c.color === potentialTrump.color && c.value === potentialTrump.value)
+      );
+      
+      if (!hasBeenPlayed) {
+        // This is the highest unplayed trump - check if I have it
+        const card = this.hand.find(c =>
+          (potentialTrump.color === 'bird' && c.color === 'bird') ||
+          (potentialTrump.color === 'red' && c.color === 'red' && c.value === 1) ||
+          (potentialTrump.color !== 'bird' && potentialTrump.color !== 'red' && 
+           c.color === potentialTrump.color && c.value === potentialTrump.value)
+        );
+        
+        return card || null;
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Check if I have the highest two unplayed trumps
+   * Returns the two highest trumps if I have them, otherwise empty array
+   */
+  private getHighestTwoTrumpsIfIHaveThem(): Card[] {
+    if (!this.trumpSuit) return [];
+    
+    // Get all cards that have been played
+    const seenCards = this.completedTricks.flatMap(t => t.cards.map(c => c.card));
+    
+    // Build list of all possible trump cards in order (highest to lowest)
+    const allPossibleTrumps = [
+      { color: 'red' as const, value: 1 },  // red-1 (trump value 100)
+      { color: 'bird' as const, value: 0 }, // bird (trump value 90)
+      ...Array.from({ length: 10 }, (_, i) => ({ color: this.trumpSuit!, value: 14 - i })) // 14 down to 5
+    ];
+    
+    // Find the highest two unplayed trumps
+    const highestTwoUnplayed: Array<{ color: Suit | 'bird' | 'red'; value: number }> = [];
+    
+    for (const potentialTrump of allPossibleTrumps) {
+      const hasBeenPlayed = seenCards.some(c => 
+        (potentialTrump.color === 'bird' && c.color === 'bird') ||
+        (potentialTrump.color === 'red' && c.color === 'red' && c.value === 1) ||
+        (potentialTrump.color !== 'bird' && potentialTrump.color !== 'red' && 
+         c.color === potentialTrump.color && c.value === potentialTrump.value)
+      );
+      
+      if (!hasBeenPlayed) {
+        highestTwoUnplayed.push(potentialTrump);
+        if (highestTwoUnplayed.length === 2) break;
+      }
+    }
+    
+    if (highestTwoUnplayed.length < 2) return [];
+    
+    // Check if I have both of these cards in my hand
+    const cardsIHave: Card[] = [];
+    
+    for (const trump of highestTwoUnplayed) {
+      const card = this.hand.find(c =>
+        (trump.color === 'bird' && c.color === 'bird') ||
+        (trump.color === 'red' && c.color === 'red' && c.value === 1) ||
+        (trump.color !== 'bird' && trump.color !== 'red' && 
+         c.color === trump.color && c.value === trump.value)
+      );
+      
+      if (card) {
+        cardsIHave.push(card);
+      } else {
+        return []; // Don't have one of the highest two
+      }
+    }
+    
+    return cardsIHave;
   }
 
   /**
