@@ -191,6 +191,10 @@ export class AIPlayer {
   selectCards(centerPileCards: Card[]): string[] {
     const allCards = [...this.hand, ...centerPileCards];
     
+    // Log all 15 cards to choose from
+    const allCardsStr = allCards.map(c => `${c.color}-${c.value}`).join(', ');
+    this.logger.debug(`[${this.position}] selectCards: 15 cards to choose from: ${allCardsStr}`);
+    
     // Phase 1: Determine best trump suit
     const trumpPotentials = this.evaluateTrumpPotential(allCards);
     const bestTrumpSuit = trumpPotentials[0].suit;
@@ -289,7 +293,21 @@ export class AIPlayer {
       }
     }
     
-    return cardsToKeep.slice(0, 9).map(c => c.id);
+    const finalCardsToKeep = cardsToKeep.slice(0, 9);
+    
+    // Calculate discarded cards
+    const keptIds = new Set(finalCardsToKeep.map(c => c.id));
+    const discardedCards = allCards.filter(c => !keptIds.has(c.id));
+    
+    // Log the 9 chosen cards
+    const chosenCardsStr = finalCardsToKeep.map(c => `${c.color}-${c.value}`).join(', ');
+    this.logger.debug(`[${this.position}] selectCards:   9 chosen cards: ${chosenCardsStr}`);
+    
+    // Log the 6 discarded cards
+    const discardedCardsStr = discardedCards.map(c => `${c.color}-${c.value}`).join(', ');
+    this.logger.debug(`[${this.position}] selectCards:   6 discarded cards: ${discardedCardsStr}`);
+    
+    return finalCardsToKeep.map(c => c.id);
   }
 
   /**
@@ -421,6 +439,21 @@ export class AIPlayer {
       if (highestTrump && trumps.some(t => t.id === highestTrump.id)) {
         this.logger.debug(`[${this.position}] Bidder has highest unplayed trump ${highestTrump.color}-${highestTrump.value}, leading it to pull trumps`);
         return highestTrump.id;
+      }
+      
+      // STRATEGY 3: If I don't have the highest trump, play highest non-point trump to draw it out
+      // This forces opponents to use their high trumps
+      if (tricksPlayed < 5 && trumps.length > 0 && !highestTrump) {
+        const nonPointTrumps = trumps.filter(c => !this.isPointCard(c));
+        if (nonPointTrumps.length > 0) {
+          // Lead HIGHEST non-point trump to draw out opponent's high trumps
+          nonPointTrumps.sort((a, b) => this.trumpValue(b) - this.trumpValue(a));
+          this.logger.debug(`[${this.position}] Bidder doesn't have highest trump, leading highest non-point trump ${nonPointTrumps[0].color}-${nonPointTrumps[0].value} to draw it out`);
+          return nonPointTrumps[0].id;
+        }
+        // All trumps are point cards, lead lowest to minimize loss
+        trumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
+        return trumps[0].id;
       }
       
       // Early game: exhaust trumps with standard strategy
