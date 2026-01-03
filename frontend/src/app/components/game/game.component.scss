@@ -221,6 +221,17 @@
     inset 0 -2px 20px rgba(0, 0, 0, 0.2);
   position: relative;
   border: 6px solid #8b4513;
+
+  .right-click-hint {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    color: white;
+    font-size: 9px;
+    opacity: 0.6;
+    z-index: 10;
+    pointer-events: none;
+  }
 }
 
 .card-canvas {
