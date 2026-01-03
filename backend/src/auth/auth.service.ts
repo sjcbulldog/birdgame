@@ -89,6 +89,19 @@ export class AuthService {
     const payload = { email: user.email, sub: user.id, userType: user.userType };
     const accessToken = this.jwtService.sign(payload);
 
+    // Notify all admin users about the login
+    const admins = await this.usersService.findAllAdmins();
+    for (const admin of admins) {
+      // Don't send notification if the user logging in is an admin
+      if (admin.id !== user.id) {
+        await this.emailService.sendAdminNotificationUserLogin(
+          admin.email,
+          user.username,
+          user.email,
+        );
+      }
+    }
+
     return {
       accessToken,
       user: {
@@ -106,6 +119,16 @@ export class AuthService {
     const user = await this.usersService.verifyEmail(token);
     if (!user) {
       throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    // Notify all admin users about the email verification
+    const admins = await this.usersService.findAllAdmins();
+    for (const admin of admins) {
+      await this.emailService.sendAdminNotificationEmailVerified(
+        admin.email,
+        user.username,
+        user.email,
+      );
     }
 
     return {

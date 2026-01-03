@@ -72,4 +72,55 @@ export class EmailService {
       }
     }
   }
+
+  async sendAdminNotificationEmailVerified(adminEmail: string, userUsername: string, userEmail: string): Promise<void> {
+    const mailOptions = {
+      from: this.configService.get('EMAIL_FROM'),
+      to: adminEmail,
+      subject: 'User Email Verified - Birds Application',
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2>User Email Verified</h2>
+          <p>A user has verified their email address:</p>
+          <ul>
+            <li><strong>Username:</strong> ${userUsername}</li>
+            <li><strong>Email:</strong> ${userEmail}</li>
+          </ul>
+        </div>
+      `,
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+    } catch (error) {
+      console.error('Error sending admin notification email:', error);
+      // Don't throw - just log the error
+    }
+  }
+
+  async sendAdminNotificationUserLogin(adminEmail: string, userUsername: string, userEmail: string): Promise<void> {
+    const mailOptions = {
+      from: this.configService.get('EMAIL_FROM'),
+      to: adminEmail,
+      subject: 'User Login - Birds Application',
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2>User Logged In</h2>
+          <p>A user has logged into the system:</p>
+          <ul>
+            <li><strong>Username:</strong> ${userUsername}</li>
+            <li><strong>Email:</strong> ${userEmail}</li>
+            <li><strong>Login Time:</strong> ${new Date().toLocaleString()}</li>
+          </ul>
+        </div>
+      `,
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+    } catch (error) {
+      console.error('Error sending admin notification email:', error);
+      // Don't throw - just log the error
+    }
+  }
 }

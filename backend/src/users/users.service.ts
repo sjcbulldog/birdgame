@@ -88,4 +88,11 @@ export class UsersService {
     user.userType = userType;
     return this.usersRepository.save(user);
   }
+
+  async findAllAdmins(): Promise<User[]> {
+    return this.usersRepository.find({
+      where: { userType: 'admin' },
+      select: ['id', 'username', 'email', 'firstName', 'lastName'],
+    });
+  }
 }
