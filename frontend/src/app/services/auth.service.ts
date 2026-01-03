@@ -27,7 +27,8 @@ export class AuthService {
     const user = this.getStoredUser();
     if (token && user) {
       this.currentUserSubject.next(user);
-      this.socketService.connect(token, user.id);
+      // Don't auto-connect socket here - it will be connected after successful login
+      // or when the app validates the token is still valid
     }
   }
 
@@ -81,7 +82,7 @@ export class AuthService {
     localStorage.setItem('user', JSON.stringify(user));
   }
 
-  private getStoredUser(): User | null {
+  getStoredUser(): User | null {
     const userStr = localStorage.getItem('user');
     return userStr ? JSON.parse(userStr) : null;
   }

@@ -65,6 +65,10 @@ export class SocketService implements OnDestroy {
     });
   }
 
+  isConnected(): boolean {
+    return this.socket?.connected ?? false;
+  }
+
   private startHeartbeat(): void {
     // Clear any existing interval
     this.stopHeartbeat();
