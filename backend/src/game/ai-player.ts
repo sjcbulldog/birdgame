@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { PlayerPosition, Suit } from './entities/game.entity';
+import { max } from 'class-validator';
 
 export interface Card {
   color: Suit | 'bird';
@@ -1343,13 +1344,12 @@ export class AIPlayer {
     this.logger.debug(`[${this.position}] findMaxBid: Starting bid calculation`);
     let maxbid = 150 ;
     let extra = 0 ;
-    let c: Card ;
 
     let cards = [...this.hand, this.centerPileTopCard] ;
     this.logger.debug(`[${this.position}] findMaxBid:   Starting bid = ${maxbid}`);
     
-    c = cards.find(c => c?.color === 'red' && c?.value === 1) ;
-    if (c === undefined) {
+    const red1 = cards.find(c => c?.color === 'red' && c?.value === 1) ;
+    if (red1 === undefined) {
       this.logger.debug(`[${this.position}] findMaxBid:   No red 1 found, -40 points`);
       maxbid -= 40 ;
     } else {
@@ -1357,8 +1357,8 @@ export class AIPlayer {
       this.logger.debug(`[${this.position}] findMaxBid:   Red 1 found, no penalty`);
     }
 
-    c = cards.find(c => c?.color === 'bird') ;
-    if (c === undefined) {
+    const bird = cards.find(c => c?.color === 'bird') ;
+    if (bird === undefined) {
       this.logger.debug(`[${this.position}] findMaxBid:   No bird found, -30 points`);
       maxbid -= 30 ;
     } else {
@@ -1376,6 +1376,16 @@ export class AIPlayer {
     const fourteensBonus = c14s.length * 10;
     this.logger.debug(`[${this.position}] findMaxBid:   Found ${c14s.length} 14s in other suits, bonus = +${fourteensBonus}`);
     maxbid += fourteensBonus ;
+
+    if (!red1 && maxbid > 120) {
+      this.logger.debug(`[${this.position}] findMaxBid:   No red 1 and bid > 110, capping bid at 110`);
+      maxbid = 120 ;
+    }
+
+    if (!bird && maxbid > 110) {
+      this.logger.debug(`[${this.position}] findMaxBid:   No bird and bid > 110, capping bid at 110`);
+      maxbid = 110 ;
+    }
 
     this.logger.debug(`[${this.position}] findMaxBid:   Final max bid = ${maxbid}`);
     return maxbid ;
