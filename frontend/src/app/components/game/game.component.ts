@@ -142,6 +142,8 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   // Admin hover state for viewing player cards
   private hoveredPlayerPosition: PlayerPosition | null = null;
   private playerIconPositions: Map<PlayerPosition, { x: number; y: number; size: number }> = new Map();
+  private hoveredCenterPile = false;
+  private centerPilePosition: { x: number; y: number; width: number; height: number } | null = null;
 
   // Context menu state
   showContextMenu = false;
@@ -394,6 +396,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
         
         // Small delay to allow socket to reconnect first (grace period handling)
         // This prevents players from becoming watchers when refreshing during gameplay
+        // Increased delay to ensure reconnection happens before HTTP request
         setTimeout(() => {
           if (!this.gameId) return;
           
@@ -448,7 +451,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
               console.error('Error loading game:', error);
             }
           });
-        }, 100); // 100ms delay to allow socket reconnection
+        }, 300); // 300ms delay to ensure socket reconnection completes before HTTP request
       }
     });
   }
@@ -887,6 +890,11 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     // Render admin hover cards LAST so they appear on top of everything including trick cards
     if (this.hoveredPlayerPosition && this.currentUser?.userType === 'admin') {
       this.renderHoveredPlayerCards(this.hoveredPlayerPosition);
+    }
+
+    // Show hovered center pile cards overlay (admin only, bidding state)
+    if (this.hoveredCenterPile && this.currentUser?.userType === 'admin' && this.game.state === 'bidding') {
+      this.renderHoveredCenterPileCards();
     }
   }
 
@@ -1633,8 +1641,9 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
   onCanvasMouseMove(event: MouseEvent): void {
     // Only handle hover if current user is admin
     if (!this.game || !this.canvasRef || this.currentUser?.userType !== 'admin') {
-      if (this.hoveredPlayerPosition !== null) {
+      if (this.hoveredPlayerPosition !== null || this.hoveredCenterPile) {
         this.hoveredPlayerPosition = null;
+        this.hoveredCenterPile = false;
         this.renderTable();
       }
       return;
@@ -1659,6 +1668,7 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       if (distance <= iconPos.size / 2) {
         if (this.hoveredPlayerPosition !== position) {
           this.hoveredPlayerPosition = position;
+          this.hoveredCenterPile = false;
           this.renderTable();
         }
         foundHover = true;
@@ -1666,8 +1676,26 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       }
     }
 
-    if (!foundHover && this.hoveredPlayerPosition !== null) {
+    // Check if hovering over center pile during bidding state
+    if (!foundHover && this.game.state === 'bidding' && this.centerPilePosition) {
+      const isOverCenterPile = x >= this.centerPilePosition.x && 
+                               x <= this.centerPilePosition.x + this.centerPilePosition.width &&
+                               y >= this.centerPilePosition.y && 
+                               y <= this.centerPilePosition.y + this.centerPilePosition.height;
+      
+      if (isOverCenterPile) {
+        if (!this.hoveredCenterPile) {
+          this.hoveredCenterPile = true;
+          this.hoveredPlayerPosition = null;
+          this.renderTable();
+        }
+        foundHover = true;
+      }
+    }
+
+    if (!foundHover && (this.hoveredPlayerPosition !== null || this.hoveredCenterPile)) {
       this.hoveredPlayerPosition = null;
+      this.hoveredCenterPile = false;
       this.renderTable();
     }
   }
@@ -2153,6 +2181,18 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
         this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY
       );
     }
+
+    // Store center pile position for hover detection (admin only, bidding state)
+    if (this.currentUser?.userType === 'admin' && this.game.state === 'bidding') {
+      this.centerPilePosition = {
+        x: centerPileCenter.x,
+        y: centerPileCenter.y,
+        width: this.CARD_WIDTH_DISPLAY + faceDownCount * 2,
+        height: this.CARD_HEIGHT_DISPLAY + faceDownCount * 2
+      };
+    } else {
+      this.centerPilePosition = null;
+    }
   }
 
   private renderPlayerIcons(): void {
@@ -2366,6 +2406,47 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
 
     const cards = this.game.gameState.hands[position];
     if (!cards || cards.length === 0) return;
+
+    const cardGap = 2;
+    const totalWidth = cards.length * this.CARD_WIDTH_DISPLAY + (cards.length - 1) * cardGap;
+    const startX = (this.TABLE_WIDTH - totalWidth) / 2;
+    const centerY = this.TABLE_HEIGHT / 2 - this.CARD_HEIGHT_DISPLAY / 2;
+
+    // Draw semi-transparent background
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    this.ctx.fillRect(
+      startX - 10,
+      centerY - 10,
+      totalWidth + 20,
+      this.CARD_HEIGHT_DISPLAY + 20
+    );
+
+    // Draw cards left to right with 2px gap
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      const cardX = startX + i * (this.CARD_WIDTH_DISPLAY + cardGap);
+      const sourceX = this.getCardSourceX(card);
+
+      this.ctx.drawImage(
+        this.cardImage,
+        sourceX, 0,
+        this.CARD_WIDTH_SOURCE, this.CARD_HEIGHT_SOURCE,
+        cardX, centerY,
+        this.CARD_WIDTH_DISPLAY, this.CARD_HEIGHT_DISPLAY
+      );
+    }
+  }
+
+  private renderHoveredCenterPileCards(): void {
+    if (!this.ctx || !this.game || !this.cardImage) return;
+
+    const centerPile = this.game.gameState.centerPile;
+    if (!centerPile || !centerPile.faceDown || centerPile.faceDown.length === 0) return;
+
+    const cards = [...centerPile.faceDown];
+    if (centerPile.faceUp) {
+      cards.push(centerPile.faceUp);
+    }
 
     const cardGap = 2;
     const totalWidth = cards.length * this.CARD_WIDTH_DISPLAY + (cards.length - 1) * cardGap;

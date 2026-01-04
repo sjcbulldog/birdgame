@@ -41,8 +41,6 @@ When the user refreshes the browser while playing a game, the user switches to w
 
 When playing in the game view, in the lower left corner there is an indicator of the color or trumps as well as the team that took the bid and for how much.  When drawing this, underline the one of the two names in the team that took the bid with the specific player that won the bid.
 
-# In Progress
-
 When the red one is led, it is the trump color and any card of the trump color should be legal for the human player to play.  When the red one is lead, the color red is not the color being led unless red is trumps.
 
 When it comes time for a human player to bid, if his partner has checked and both opposing players have passed, that human player should be skipped and retain their current bid status and the bidding process should move to their partner.  Their partner can either raise the bid or pass at this point.
@@ -52,6 +50,10 @@ In the game view, In the lower left corner we made a change to underline the act
 When the AI takes the bid and is playing the hand, they should save a trump for the last trick unless they are sure there are no points in the discarded six cards.
 
 When AI is playing and their partner took the bid, if their partner leads a trump that is not the highest trump still outstanding, do not put points on the trick if possible.
+
+# In Progress
+
+Create a mobile site for cell phones.  For the home page, do not show the list of players logged into the site and show the tables vertically one below another.  The tables show have the same look but should be scaled about 25% smaller so a single table will fit on the cell phone screen.
 
 # Todo List
 
