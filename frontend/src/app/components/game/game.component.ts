@@ -46,6 +46,7 @@ interface ServerGameState {
     eastPlayer: any;
     southPlayer: any;
     westPlayer: any;
+    watchers?: Array<{ id: string; username: string; email: string }>;
   };
   gameState: {
     hands: {
@@ -397,24 +398,31 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
             // Determine user's position from table
             if (this.currentUser && game.table) {
               const userId = this.currentUser.id;
+              
+              // Check if user is a PLAYER first (this takes precedence over watcher)
               if (game.table.northPlayer?.id === userId) {
                 this.myPosition = 'north';
+                this.updatePositionMapping();
+                this.socketService.joinGame(this.gameId!, this.myPosition);
               } else if (game.table.southPlayer?.id === userId) {
                 this.myPosition = 'south';
+                this.updatePositionMapping();
+                this.socketService.joinGame(this.gameId!, this.myPosition);
               } else if (game.table.eastPlayer?.id === userId) {
                 this.myPosition = 'east';
+                this.updatePositionMapping();
+                this.socketService.joinGame(this.gameId!, this.myPosition);
               } else if (game.table.westPlayer?.id === userId) {
                 this.myPosition = 'west';
-              }
-
-              // Set up position mapping
-              if (this.myPosition) {
                 this.updatePositionMapping();
-                
-                // Join the game via socket
                 this.socketService.joinGame(this.gameId!, this.myPosition);
               } else {
-                // User is not at table, must be watcher
+                // Not a player - check if they're a watcher or if this is watcher mode
+                const isUserWatcher = game.table.watchers?.some(
+                  (watcher: any) => watcher.id === userId
+                );
+                
+                // User is watching this game
                 this.isWatcherMode = true;
                 this.myPosition = 'south'; // Default position for display purposes
                 this.updatePositionMapping();
@@ -2164,7 +2172,17 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       const displayPos = this.getDisplayPosition(backendPos);
       const playerType = this.game.playerTypes[backendPos];
       const player = this.game.table[`${backendPos}Player` as keyof typeof this.game.table];
-      const playerName = this.game.playerNames?.[backendPos] || backendPos;
+      
+      // Get player name: use actual player name from playerNames or table
+      let playerName: string;
+      if (this.game.playerNames?.[backendPos]) {
+        playerName = this.game.playerNames[backendPos];
+      } else if (player && typeof player === 'object' && 'username' in player) {
+        playerName = (player as any).username || (player as any).email || backendPos;
+      } else {
+        playerName = backendPos;
+      }
+      
       const isDealer = this.game.dealer === backendPos;
       
       // Determine if this player is active (needs to play)
@@ -2590,12 +2608,59 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
     this.ctx.lineWidth = 2;
     this.ctx.stroke();
 
-    // Draw team name (middle)
-    this.ctx.font = '12px Arial';
-    this.ctx.fillStyle = '#ffffff';
+    // Draw team name (middle) with high bidder highlighted
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
-    this.ctx.fillText(teamName, boxX + boxWidth / 2, boxY + 63);
+    
+    // Parse team names and determine which player won the bid
+    const teamParts = teamName.split(' / ');
+    if (teamParts.length === 2) {
+      const firstPlayerPos = biddingTeam === 'northSouth' ? 'north' : 'east';
+      const secondPlayerPos = biddingTeam === 'northSouth' ? 'south' : 'west';
+      const firstPlayerName = teamParts[0];
+      const secondPlayerName = teamParts[1];
+      
+      // Determine which player won the bid
+      const firstPlayerWonBid = this.game.highBidder === firstPlayerPos;
+      const secondPlayerWonBid = this.game.highBidder === secondPlayerPos;
+      
+      // Measure text widths for positioning (use bold for winner)
+      this.ctx.font = firstPlayerWonBid ? 'bold 14px Arial' : '12px Arial';
+      const firstName = this.ctx.measureText(firstPlayerName).width;
+      
+      this.ctx.font = '12px Arial';
+      const separatorWidth = this.ctx.measureText(' / ').width;
+      
+      this.ctx.font = secondPlayerWonBid ? 'bold 14px Arial' : '12px Arial';
+      const secondName = this.ctx.measureText(secondPlayerName).width;
+      
+      const totalWidth = firstName + separatorWidth + secondName;
+      
+      // Calculate starting x position to center the full text
+      const startX = boxX + boxWidth / 2 - totalWidth / 2;
+      const textY = boxY + 63;
+      
+      // Draw first player name
+      this.ctx.textAlign = 'left';
+      this.ctx.font = firstPlayerWonBid ? 'bold 14px Arial' : '12px Arial';
+      this.ctx.fillStyle = firstPlayerWonBid ? '#ffd700' : '#ffffff'; // Gold for winner
+      this.ctx.fillText(firstPlayerName, startX, textY);
+      
+      // Draw separator
+      this.ctx.font = '12px Arial';
+      this.ctx.fillStyle = '#ffffff';
+      this.ctx.fillText(' / ', startX + firstName, textY);
+      
+      // Draw second player name
+      this.ctx.font = secondPlayerWonBid ? 'bold 14px Arial' : '12px Arial';
+      this.ctx.fillStyle = secondPlayerWonBid ? '#ffd700' : '#ffffff'; // Gold for winner
+      this.ctx.fillText(secondPlayerName, startX + firstName + separatorWidth, textY);
+    } else {
+      // Fallback: just draw the team name
+      this.ctx.font = '12px Arial';
+      this.ctx.fillStyle = '#ffffff';
+      this.ctx.fillText(teamName, boxX + boxWidth / 2, boxY + 63);
+    }
 
     // Draw bid amount (bottom)
     this.ctx.font = 'bold 16px Arial';

@@ -175,7 +175,15 @@ export class GameService implements OnModuleInit {
   async getGame(gameId: string): Promise<Game> {
     const game = await this.gameRepository.findOne({
       where: { id: gameId },
-      relations: ['table', 'table.northPlayer', 'table.eastPlayer', 'table.southPlayer', 'table.westPlayer'],
+      relations: [
+        'table', 
+        'table.northPlayer', 
+        'table.eastPlayer', 
+        'table.southPlayer', 
+        'table.westPlayer',
+        'table.watchers',
+        'table.watchers.user'
+      ],
     });
 
     if (!game) {
@@ -488,6 +496,14 @@ export class GameService implements OnModuleInit {
       // Use override if set (for check scenario where both opponents passed)
       game.currentBidder = nextBidderOverride || this.getNextActiveBidder(player, passedPlayers);
 
+      // Check if the new current bidder should be auto-skipped
+      // This happens when their partner has checked and both opponents have passed
+      const autoSkipTo = this.shouldAutoSkipBidder(game);
+      if (autoSkipTo) {
+        // Auto-skip this player and move to their partner
+        game.currentBidder = autoSkipTo;
+      }
+
       const savedGame = await queryRunner.manager.save(game);
       await queryRunner.commitTransaction();
 
@@ -671,7 +687,18 @@ export class GameService implements OnModuleInit {
 
       // Set lead suit if first card
       if (currentTrick.cards.length === 1) {
-        currentTrick.leadSuit = card.color === 'bird' ? null : card.color;
+        // Bird has no suit
+        if (card.color === 'bird') {
+          currentTrick.leadSuit = null;
+        }
+        // Red 1 is always trump, so lead suit is the trump suit
+        else if (card.color === 'red' && card.value === 1) {
+          currentTrick.leadSuit = game.trumpSuit;
+        }
+        // Normal card - lead suit is its color
+        else {
+          currentTrick.leadSuit = card.color;
+        }
       }
 
       // Check if trick is complete
@@ -1159,6 +1186,54 @@ export class GameService implements OnModuleInit {
     return this.getNextPlayer(currentPlayer);
   }
 
+  /**
+   * Check if current bidder should be auto-skipped
+   * Returns the partner if:
+   * 1. Partner has checked
+   * 2. Both opponents have passed
+   * Otherwise returns null
+   */
+  private shouldAutoSkipBidder(game: Game): PlayerPosition | null {
+    const currentBidder = game.currentBidder;
+    if (!currentBidder) return null;
+
+    const partner = this.getPartner(currentBidder);
+    const opponents: PlayerPosition[] = (['north', 'south', 'east', 'west'] as PlayerPosition[])
+      .filter(p => p !== currentBidder && p !== partner);
+
+    // Check if partner has checked (most recent bid from partner)
+    let partnerHasChecked = false;
+    for (let i = game.gameState.biddingHistory.length - 1; i >= 0; i--) {
+      const entry = game.gameState.biddingHistory[i];
+      if (entry.player === partner) {
+        partnerHasChecked = entry.bid === 'check';
+        break;
+      }
+    }
+
+    if (!partnerHasChecked) return null;
+
+    // Check if both opponents have passed (most recent bid from each opponent)
+    const opponentPasses = opponents.map(opp => {
+      for (let i = game.gameState.biddingHistory.length - 1; i >= 0; i--) {
+        const entry = game.gameState.biddingHistory[i];
+        if (entry.player === opp) {
+          return entry.bid === 'pass';
+        }
+      }
+      return false;
+    });
+
+    const bothOpponentsPassed = opponentPasses.every(passed => passed);
+
+    if (bothOpponentsPassed) {
+      // Current bidder should be skipped, move to partner
+      return partner;
+    }
+
+    return null;
+  }
+
   private determineTrickWinner(trick: GameStateData['currentTrick'], trumpSuit: Suit): PlayerPosition {
     if (trick.cards.length === 0) {
       throw new Error('Cannot determine winner of empty trick');
@@ -1273,8 +1348,8 @@ export class GameService implements OnModuleInit {
     const leadCard = currentTrick.cards[0].card;
     const leadSuit = currentTrick.leadSuit;
 
-    // Special case: If red 1 or bird is led, must follow with trump suit if you have it
-    if (((leadCard.color === 'red' && leadCard.value === 1) || leadCard.color === 'bird') && trumpSuit) {
+    // Special case: If bird is led, must follow with trump suit if you have it
+    if (leadCard.color === 'bird' && trumpSuit) {
       const hasTrumpCards = hand.some(c => 
         c.color === trumpSuit || 
         c.color === 'bird' || 
@@ -1286,7 +1361,7 @@ export class GameService implements OnModuleInit {
                              card.color === 'bird' || 
                              (card.color === 'red' && card.value === 1);
         if (!isValidTrump) {
-          throw new BadRequestException('Must follow with trump when red 1 or bird is led');
+          throw new BadRequestException('Must follow with trump when bird is led');
         }
       }
       return;

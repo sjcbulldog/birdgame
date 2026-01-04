@@ -8,15 +8,23 @@ interface HeartbeatData {
   socketId: string;
 }
 
+interface PendingCleanup {
+  userId: string;
+  scheduledTime: Date;
+  timeoutId: NodeJS.Timeout;
+}
+
 @Injectable()
 export class HeartbeatService {
   private readonly logger = new Logger(HeartbeatService.name);
   private heartbeats: Map<string, HeartbeatData> = new Map();
+  private pendingCleanups: Map<string, PendingCleanup> = new Map();
   private cleanupInterval: NodeJS.Timeout;
   private orphanedUserCheckInterval: NodeJS.Timeout;
   private readonly HEARTBEAT_TIMEOUT = 60000; // 60 seconds (4 heartbeats)
   private readonly CLEANUP_INTERVAL = 15000; // Check every 15 seconds
   private readonly ORPHANED_USER_CHECK_INTERVAL = 60000; // Check every 60 seconds
+  private readonly DISCONNECT_GRACE_PERIOD = 5000; // 5 seconds grace period for reconnection
   private gateway: any; // TablesGateway reference to avoid circular dependency
 
   constructor(
@@ -56,6 +64,14 @@ export class HeartbeatService {
    * Record a heartbeat from a user
    */
   recordHeartbeat(userId: string, socketId: string): void {
+    // Cancel any pending cleanup for this user (they've reconnected)
+    const pendingCleanup = this.pendingCleanups.get(userId);
+    if (pendingCleanup) {
+      clearTimeout(pendingCleanup.timeoutId);
+      this.pendingCleanups.delete(userId);
+      this.logger.log(`Cancelled pending cleanup for user ${userId} - reconnected`);
+    }
+    
     this.heartbeats.set(userId, {
       userId,
       lastHeartbeat: new Date(),
@@ -94,12 +110,32 @@ export class HeartbeatService {
 
   /**
    * Remove a user by socket ID (called when socket disconnects)
+   * Schedules cleanup after a grace period to allow for reconnection (e.g., browser refresh)
    */
   async removeUserBySocketId(socketId: string): Promise<void> {
     // Find user by socket ID
     for (const [userId, data] of this.heartbeats.entries()) {
       if (data.socketId === socketId) {
-        await this.cleanupUser(userId);
+        // Check if there's already a pending cleanup for this user
+        if (this.pendingCleanups.has(userId)) {
+          this.logger.log(`Cleanup already pending for user ${userId}`);
+          return;
+        }
+        
+        // Schedule cleanup after grace period
+        this.logger.log(`Socket disconnected for user ${userId}, scheduling cleanup in ${this.DISCONNECT_GRACE_PERIOD}ms`);
+        const timeoutId = setTimeout(async () => {
+          this.logger.log(`Grace period expired for user ${userId}, cleaning up`);
+          this.pendingCleanups.delete(userId);
+          await this.cleanupUser(userId);
+        }, this.DISCONNECT_GRACE_PERIOD);
+        
+        this.pendingCleanups.set(userId, {
+          userId,
+          scheduledTime: new Date(Date.now() + this.DISCONNECT_GRACE_PERIOD),
+          timeoutId,
+        });
+        
         return;
       }
     }

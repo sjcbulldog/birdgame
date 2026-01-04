@@ -30,7 +30,9 @@ export class HomeComponent implements OnInit {
   showPreferencesDialog = false;
   showAttributionsDialog = false;
   showUsersDialog = false;
+  showTableCountWarningDialog = false;
   tableCount = 3;
+  originalTableCount = 3;
   dealAnimationTime = 10000;
   trickAnimationTime = 1000;
   trickDisplayDelay = 2000;
@@ -244,6 +246,7 @@ export class HomeComponent implements OnInit {
     this.tableService.getPreferences().subscribe({
       next: (prefs) => {
         this.tableCount = prefs.tableCount;
+        this.originalTableCount = prefs.tableCount;
         this.dealAnimationTime = prefs.dealAnimationTime;
         this.trickAnimationTime = prefs.trickAnimationTime;
         this.trickDisplayDelay = prefs.trickDisplayDelay;
@@ -257,6 +260,7 @@ export class HomeComponent implements OnInit {
       error: (error) => {
         console.error('Error loading preferences:', error);
         this.tableCount = this.tables().length;
+        this.originalTableCount = this.tables().length;
         this.dealAnimationTime = 10000;
         this.trickAnimationTime = 1000;
         this.trickDisplayDelay = 2000;
@@ -319,6 +323,27 @@ export class HomeComponent implements OnInit {
       return;
     }
 
+    // Check if table count is being reduced
+    if (this.tableCount < this.originalTableCount) {
+      // Show confirmation dialog
+      this.showTableCountWarningDialog = true;
+      return;
+    }
+
+    this.performSavePreferences();
+  }
+
+  confirmTableCountReduction(): void {
+    this.showTableCountWarningDialog = false;
+    this.performSavePreferences();
+  }
+
+  cancelTableCountReduction(): void {
+    this.showTableCountWarningDialog = false;
+    this.tableCount = this.originalTableCount;
+  }
+
+  private performSavePreferences(): void {
     this.tableService.setPreferences({
       tableCount: this.tableCount,
       dealAnimationTime: this.dealAnimationTime,

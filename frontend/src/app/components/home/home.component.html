@@ -241,10 +241,28 @@
             class="table-count-input"
           />
         </div>
-        <p class="warning">Note: Changing table count will remove tables with active games or players if reducing the count.</p>
         <div class="dialog-actions">
           <button class="btn btn-secondary" (click)="cancelPreferences()">Cancel</button>
           <button class="btn btn-primary" (click)="savePreferences()">Save</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Table Count Warning Dialog -->
+  @if (showTableCountWarningDialog) {
+    <div class="dialog-overlay" (click)="cancelTableCountReduction()">
+      <div class="dialog-content" (click)="$event.stopPropagation()">
+        <h2>Reduce Table Count?</h2>
+        <p class="warning">
+          Reducing the number of tables may disrupt games on tables that will be removed.
+        </p>
+        <p>
+          Are you sure you want to reduce the table count from {{ originalTableCount }} to {{ tableCount }}?
+        </p>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" (click)="cancelTableCountReduction()">Cancel</button>
+          <button class="btn btn-primary" (click)="confirmTableCountReduction()">Confirm</button>
         </div>
       </div>
     </div>

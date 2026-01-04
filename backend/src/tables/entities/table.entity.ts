@@ -1,5 +1,6 @@
-﻿import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn, JoinColumn } from 'typeorm';
+﻿import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToMany, CreateDateColumn, UpdateDateColumn, JoinColumn } from 'typeorm';
 import { User } from '../../users/user.entity';
+import { TableWatcher } from './table-watcher.entity';
 
 @Entity('tables')
 export class Table {
@@ -36,6 +37,9 @@ export class Table {
   @ManyToOne(() => User, { nullable: true, eager: true })
   @JoinColumn({ name: 'westPlayerId' })
   westPlayer: User;
+
+  @OneToMany(() => TableWatcher, tableWatcher => tableWatcher.table)
+  watchers: TableWatcher[];
 
   @CreateDateColumn()
   createdAt: Date;

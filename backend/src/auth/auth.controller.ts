@@ -25,4 +25,9 @@ export class AuthController {
   async resendVerification(@Body() resendDto: ResendVerificationDto) {
     return this.authService.resendVerification(resendDto.usernameOrEmail);
   }
+
+  @Get('check-username')
+  async checkUsername(@Query('username') username: string) {
+    return this.authService.checkUsernameAvailability(username);
+  }
 }
