@@ -1313,7 +1313,9 @@ export class GameService implements OnModuleInit {
       } else {
         // Regular suit following (not trump)
         // Note: red 1 is always trump, never red (unless red is the trump suit)
-        const hasLeadSuit = hand.some(c => c.color === leadSuit);
+        const hasLeadSuit = hand.some(c => 
+          c.color === leadSuit && !(c.color === 'red' && c.value === 1)
+        );
         if (hasLeadSuit && card.color !== leadSuit) {
           throw new BadRequestException(`Must follow suit (${leadSuit})`);
         }
