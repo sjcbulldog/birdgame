@@ -170,4 +170,16 @@ export class AuthService {
       message: 'Verification email sent. Please check your inbox.',
     };
   }
+
+  async checkUsernameAvailability(username: string) {
+    if (!username || username.trim().length === 0) {
+      throw new BadRequestException('Username is required');
+    }
+
+    const existingUser = await this.usersService.findByUsername(username);
+    return {
+      available: !existingUser,
+      username,
+    };
+  }
 }

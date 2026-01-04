@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, signal } from '@angular/core';
+import { Component, ChangeDetectorRef, signal, AfterViewInit, ElementRef, ViewChild } from '@angular/core';
 import { FormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
@@ -9,7 +9,9 @@ import { AuthService } from '../../services/auth.service';
   templateUrl: './login.component.html',
   styleUrls: ['./login.component.scss']
 })
-export class LoginComponent {
+export class LoginComponent implements AfterViewInit {
+  @ViewChild('usernameInput') usernameInput!: ElementRef<HTMLInputElement>;
+  
   loginForm: FormGroup;
   errorMessage = '';
   isLoading = false;
@@ -27,6 +29,13 @@ export class LoginComponent {
       usernameOrEmail: ['', [Validators.required]],
       password: ['', [Validators.required]]
     });
+  }
+
+  ngAfterViewInit(): void {
+    // Set focus to username field after view initializes
+    if (this.usernameInput) {
+      this.usernameInput.nativeElement.focus();
+    }
   }
 
   onSubmit(): void {

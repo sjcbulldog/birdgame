@@ -9,15 +9,52 @@ When a user logs out of the site, they should be removed from the Logged In User
 
 Add an watchers view.  It is basically the same as the game view, but the user cannot interact with the game at all.  All cards in player's hands are shown face down (so only see card backs), and the watcher can see cards as their played for a trick with the same trick delay, won trick animation, etc.  The leave button takes a watcher back to the home screen and removes the player as a watcher for that table.
 
+Actually when entering a user name in the Create Account form, dynamically check the backend on each character typed and if the user name is in use, display an error message stating that user name is already in use.
+
+Error structure: {
+  "headers": {
+    "normalizedNames": {},
+    "lazyUpdate": null
+  },
+  "status": 409,
+  "statusText": "Conflict",
+  "url": "http://192.168.1.35:3000/auth/register",
+  "ok": false,
+  "name": "HttpErrorResponse",
+  "message": "Http failure response for http://192.168.1.35:3000/auth/register: 409 Conflict",
+  "error": {
+    "message": "Email already exists",
+    "error": "Conflict",
+    "statusCode": 409
+  }
+}
+
+In the registration form, when the user is typing a user name, if the number of characters typed is less than 8 show an error saying the user name must be eight characters.  
+
+In the Create Account form, if the user moves focus away from the Username field, check the backend to see if that user name is already in use.  If it is, show an error below the username field stating that the given username is taken.
+
+In the preferences dialog, if the total number of tables is changed and is made smaller, display a popup stating that this may disrupt the game of any players at tables that will be removed.  Also, remove the Note: Changing tables count ... in the dialog.
+
+When the login form is displayed, set the focus to the username field.
+
+When the user refreshes the browser while playing a game, the user switches to watcher mode.  The watcher mode should be part of the game state for a given user and therefore also get refreshed when the browser is refereshed. Also, When the game view is in watcher mode, the player names should reflect the players playing the game and not the watcher.
+
+When playing in the game view, in the lower left corner there is an indicator of the color or trumps as well as the team that took the bid and for how much.  When drawing this, underline the one of the two names in the team that took the bid with the specific player that won the bid.
+
 # In Progress
 
-When in the game view, if I am ready to lead the first cards in a new trick, and I own the bid, and no one else has trumps, and all of the non-trump cards I have are the highest, the display a 'Got The Rest' button to the right of the players hand. Note, non-trump cards could be a run like 14, 13, 12 or could be a set of 14s.  Non-trump cards should also be holding a 13 knowing the 14 has already been played.  Non-trump could also be holding a 12 knowing the 14 and 13 have both been played.  Basically if the non-trump cards the user is holding are the highest cards out in that color.
+When the red one is led, it is the trump color and any card of the trump color should be legal for the human player to play.  When the red one is lead, the color red is not the color being led unless red is trumps.
+
+When it comes time for a human player to bid, if his partner has checked and both opposing players have passed, that human player should be skipped and retain their current bid status and the bidding process should move to their partner.  Their partner can either raise the bid or pass at this point.
+
+In the game view, In the lower left corner we made a change to underline the actual player that took the bid.  However, the underline is not really noticible.  Find another way to indentify which of the two players actually took the bid.
+
+When the AI takes the bid and is playing the hand, they should save a trump for the last trick unless they are sure there are no points in the discarded six cards.
+
+When AI is playing and their partner took the bid, if their partner leads a trump that is not the highest trump still outstanding, do not put points on the trick if possible.
 
 # Todo List
 
-Improve AI play
 
-Animate played cards from the users hand to the middle
 
 Mobile site play
-

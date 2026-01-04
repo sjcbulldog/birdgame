@@ -59,6 +59,10 @@ export class AuthService {
     return this.http.post<{ message: string }>(`${this.apiUrl}/resend-verification`, { usernameOrEmail });
   }
 
+  checkUsernameAvailability(username: string): Observable<{ available: boolean; username: string }> {
+    return this.http.get<{ available: boolean; username: string }>(`${this.apiUrl}/check-username?username=${encodeURIComponent(username)}`);
+  }
+
   logout(): void {
     this.socketService.disconnect();
     localStorage.removeItem('accessToken');

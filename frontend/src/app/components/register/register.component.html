@@ -23,16 +23,32 @@
           id="username" 
           formControlName="username"
           class="form-control"
-          [class.invalid]="username?.invalid && username?.touched"
+          [class.invalid]="(username?.invalid && (username?.touched || username?.dirty)) || usernameError"
+          (blur)="onUsernameBlur()"
         />
-        @if (username?.invalid && username?.touched) {
+        @if (username?.invalid && (username?.touched || username?.dirty)) {
           <div class="error-text">
             @if (username?.errors?.['required']) {
               <span>Username is required</span>
             }
             @if (username?.errors?.['minlength']) {
-              <span>Username must be at least 3 characters</span>
+              <span>Username must be at least 8 characters</span>
             }
+          </div>
+        }
+        @if (usernameError) {
+          <div class="error-text">
+            <span>{{ usernameError }}</span>
+          </div>
+        }
+        @if (usernameAvailableMessage) {
+          <div class="success-text" style="color: green; font-size: 0.875rem; margin-top: 0.25rem;">
+            <span>{{ usernameAvailableMessage }}</span>
+          </div>
+        }
+        @if (isCheckingUsername) {
+          <div class="info-text">
+            <span>Checking availability...</span>
           </div>
         }
       </div>

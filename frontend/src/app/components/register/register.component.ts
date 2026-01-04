@@ -1,4 +1,4 @@
-import { Component, computed, signal } from '@angular/core';
+import { Component, computed, signal, ChangeDetectorRef } from '@angular/core';
 import { FormBuilder, FormGroup, Validators, ReactiveFormsModule, AbstractControl, ValidationErrors } from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
@@ -14,6 +14,13 @@ export class RegisterComponent {
   errorMessage = '';
   successMessage = '';
   isLoading = false;
+  usernameError = '';
+  usernameAvailableMessage = '';
+  isCheckingUsername = false;
+
+  // Username signal
+  usernameValue = signal('');
+  usernameHasMinLength = computed(() => this.usernameValue().length >= 8);
 
   // Password requirement signals
   passwordValue = signal('');
@@ -26,16 +33,24 @@ export class RegisterComponent {
   constructor(
     private fb: FormBuilder,
     private authService: AuthService,
-    private router: Router
+    private router: Router,
+    private cdr: ChangeDetectorRef
   ) {
     this.registerForm = this.fb.group({
-      username: ['', [Validators.required, Validators.minLength(3)]],
+      username: ['', [Validators.required, Validators.minLength(8)]],
       email: ['', [Validators.required, Validators.email]],
       password: ['', [Validators.required, this.passwordValidator.bind(this)]],
       confirmPassword: ['', [Validators.required]],
       firstName: [''],
       lastName: ['']
     }, { validators: this.passwordMatchValidator });
+
+    // Subscribe to username changes
+    this.registerForm.get('username')?.valueChanges.subscribe(value => {
+      this.usernameValue.set(value || '');
+      // Clear availability message when user types
+      this.usernameAvailableMessage = '';
+    });
 
     // Subscribe to password changes
     this.registerForm.get('password')?.valueChanges.subscribe(value => {
@@ -72,6 +87,36 @@ export class RegisterComponent {
     return password === confirmPassword ? null : { mismatch: true };
   }
 
+  onUsernameBlur(): void {
+    const usernameControl = this.registerForm.get('username');
+    const username = usernameControl?.value?.trim();
+
+    // Clear previous messages
+    this.usernameError = '';
+    this.usernameAvailableMessage = '';
+
+    // Only check if username meets minimum requirements
+    if (!username || username.length < 8) {
+      return;
+    }
+
+    this.isCheckingUsername = true;
+    this.authService.checkUsernameAvailability(username).subscribe({
+      next: (response) => {
+        this.isCheckingUsername = false;
+        if (!response.available) {
+          this.usernameError = `The username "${username}" is already taken`;
+        } else {
+          this.usernameAvailableMessage = 'Username is available';
+        }
+      },
+      error: (error) => {
+        this.isCheckingUsername = false;
+        console.error('Error checking username:', error);
+      }
+    });
+  }
+
   onSubmit(): void {
     if (this.registerForm.invalid) {
       return;
@@ -95,8 +140,28 @@ export class RegisterComponent {
         }, 3000);
       },
       error: (error) => {
-        this.errorMessage = error.error?.message || 'Registration failed. Please try again.';
+        console.error('Registration error:', error);
+        console.log('error.error:', error.error);
+        console.log('error.error?.message:', error.error?.message);
+        console.log('error.message:', error.message);
+        
+        // Handle different error structures
+        if (error.error?.message) {
+          this.errorMessage = error.error.message;
+        } else if (error.message) {
+          this.errorMessage = error.message;
+        } else {
+          this.errorMessage = 'Registration failed. Please try again.';
+        }
+        
+        console.log('errorMessage set to:', this.errorMessage);
         this.isLoading = false;
+        this.cdr.detectChanges(); // Manually trigger change detection
+        
+        // Log after a brief delay to see if it gets cleared
+        setTimeout(() => {
+          console.log('errorMessage after delay:', this.errorMessage);
+        }, 100);
       }
     });
   }

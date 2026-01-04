@@ -411,10 +411,11 @@ export class AIPlayer {
    * 1. Pull trumps by leading highest trump when I have it
    * 2. Special case: if 5+ trumps including red-1, lead red-1
    * 3. Continue leading highest trump until opponents are out of trumps
-   * 4. Exhaust trumps from other players while minimizing point loss
-   * 5. Play non-trump cards after exhausting trumps
-   * 6. Regain control with trumps if opponents win a trick
-   * 7. Save a trump for the last trick (unless no points in discard)
+   * 4. Exhaust trumps from other players while minimizing point loss (early game)
+   * 5. In mid-game (tricks 5-7), be conservative about leading trumps if saving one for last trick
+   * 6. Play non-trump cards after exhausting trumps
+   * 7. Regain control with trumps if opponents win a trick
+   * 8. Save a trump for the last trick (unless no points in discard)
    */
   private playAsBidder(playableCards: Card[], currentTrick: CurrentTrick, positionInOrder: number): string {
     const tricksPlayed = this.completedTricks.length;
@@ -476,21 +477,53 @@ export class AIPlayer {
         return trumps[0].id;
       }
       
-      // Mid-late game: play non-trumps if we have them
+      // Mid-game (tricks 5-7): be more conservative with trumps if we need to save one
+      if (tricksPlayed >= 5 && tricksPlayed < 8 && trumps.length > 0 && hasDiscardPoints) {
+        // Check if we should save our trump(s) for the last trick
+        if (trumps.length === 1) {
+          // Only one trump left - don't lead it! Try to play non-trumps
+          if (nonTrumps.length > 0) {
+            nonTrumps.sort((a, b) => b.value - a.value);
+            return nonTrumps[0].id;
+          }
+          // No choice but to play our last trump
+          return trumps[0].id;
+        } else {
+          // Multiple trumps - we can afford to lead one but save at least one
+          const nonPointTrumps = trumps.filter(c => !this.isPointCard(c));
+          if (nonPointTrumps.length > 0) {
+            nonPointTrumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
+            return nonPointTrumps[0].id;
+          }
+          trumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
+          return trumps[0].id;
+        }
+      }
+      
+      // Mid-late game: play non-trumps if we have them, but reserve a trump for last trick if needed
       if (nonTrumps.length > 0) {
         // Play highest non-trump to win when trumps are exhausted
         nonTrumps.sort((a, b) => b.value - a.value);
         return nonTrumps[0].id;
       }
       
-      // Only trumps left, play them
+      // Only trumps left - need to be careful about saving one for last trick
       if (isLastTrick || !hasDiscardPoints) {
         // Last trick or no discard points, play any trump
         trumps.sort((a, b) => this.trumpValue(b) - this.trumpValue(a));
         return trumps[0].id;
       }
       
-      // Save trump for last trick, play lowest
+      // Not last trick and have discard points - save trump for last trick if possible
+      if (trumps.length > 1) {
+        // We have multiple trumps, play lowest and save one for last trick
+        trumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
+        return trumps[0].id;
+      }
+      
+      // Only one trump left and not last trick - this is our trump to save!
+      // But we have no non-trumps to play, so we must play this trump
+      // This shouldn't normally happen if we played strategically earlier
       trumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
       return trumps[0].id;
     } else {
@@ -533,9 +566,10 @@ export class AIPlayer {
   /**
    * Strategy for partner of bidder
    * 1. Signal red-1 or bird early if I have it
-   * 2. When partner exhausting trumps, play trumps lowest to highest
-   * 3. When partner plays non-trump high card, play points
-   * 4. Otherwise avoid points
+   * 2. When partner leads highest trump, play trumps lowest to highest
+   * 3. When partner leads non-highest trump, avoid playing point cards if possible
+   * 4. When partner plays non-trump high card, play points
+   * 5. Otherwise avoid points
    */
   private playAsPartner(playableCards: Card[], currentTrick: CurrentTrick, positionInOrder: number): string {
     const tricksPlayed = this.completedTricks.length;
@@ -580,12 +614,27 @@ export class AIPlayer {
         const leadCard = currentTrick.cards[0].card;
         const partnerLed = currentTrick.cards[0].player === this.getPartner(this.position);
         
-        // If partner led trump, play trumps lowest to highest
+        // If partner led trump, check if it's the highest outstanding trump
         if (partnerLed && this.isTrumpCard(partnerCard)) {
+          const isHighestTrump = this.isHighestOutstandingTrump(partnerCard, currentTrick);
           const trumps = this.getTrumpCards(playableCards);
+          
           if (trumps.length > 0) {
-            trumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
-            return trumps[0].id;
+            // Partner led highest trump - it will win, safe to add points
+            if (isHighestTrump) {
+              trumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
+              return trumps[0].id;
+            } else {
+              // Partner led non-highest trump - avoid playing point cards if possible
+              const nonPointTrumps = trumps.filter(c => !this.isPointCard(c));
+              if (nonPointTrumps.length > 0) {
+                nonPointTrumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
+                return nonPointTrumps[0].id;
+              }
+              // Only point trumps available, play lowest
+              trumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
+              return trumps[0].id;
+            }
           }
         }
         
@@ -1403,8 +1452,8 @@ export class AIPlayer {
     const leadCard = currentTrick.cards[0].card;
     const leadSuit = currentTrick.leadSuit;
     
-    // Special case: If red 1 or bird is led, must follow with trump suit if you have it
-    if (((leadCard.color === 'red' && leadCard.value === 1) || leadCard.color === 'bird') && this.trumpSuit) {
+    // Special case: If bird is led, must follow with trump suit if you have it
+    if (leadCard.color === 'bird' && this.trumpSuit) {
       const trumpCards = this.hand.filter(c => 
         c.color === this.trumpSuit || 
         c.color === 'bird' || 
