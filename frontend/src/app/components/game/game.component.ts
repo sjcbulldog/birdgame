@@ -392,57 +392,63 @@ export class GameComponent implements OnInit, AfterViewInit, OnDestroy {
       this.gameId = params['gameId'];
       if (this.gameId) {
         
-        // Fetch initial game state via HTTP
-        this.tableService.getGame(this.gameId).subscribe({
-          next: (game: ServerGameState) => {
-            // Determine user's position from table
-            if (this.currentUser && game.table) {
-              const userId = this.currentUser.id;
-              
-              // Check if user is a PLAYER first (this takes precedence over watcher)
-              if (game.table.northPlayer?.id === userId) {
-                this.myPosition = 'north';
-                this.updatePositionMapping();
-                this.socketService.joinGame(this.gameId!, this.myPosition);
-              } else if (game.table.southPlayer?.id === userId) {
-                this.myPosition = 'south';
-                this.updatePositionMapping();
-                this.socketService.joinGame(this.gameId!, this.myPosition);
-              } else if (game.table.eastPlayer?.id === userId) {
-                this.myPosition = 'east';
-                this.updatePositionMapping();
-                this.socketService.joinGame(this.gameId!, this.myPosition);
-              } else if (game.table.westPlayer?.id === userId) {
-                this.myPosition = 'west';
-                this.updatePositionMapping();
-                this.socketService.joinGame(this.gameId!, this.myPosition);
-              } else {
-                // Not a player - check if they're a watcher or if this is watcher mode
-                const isUserWatcher = game.table.watchers?.some(
-                  (watcher: any) => watcher.id === userId
-                );
+        // Small delay to allow socket to reconnect first (grace period handling)
+        // This prevents players from becoming watchers when refreshing during gameplay
+        setTimeout(() => {
+          if (!this.gameId) return;
+          
+          // Fetch initial game state via HTTP
+          this.tableService.getGame(this.gameId).subscribe({
+            next: (game: ServerGameState) => {
+              // Determine user's position from table
+              if (this.currentUser && game.table) {
+                const userId = this.currentUser.id;
                 
-                // User is watching this game
-                this.isWatcherMode = true;
-                this.myPosition = 'south'; // Default position for display purposes
-                this.updatePositionMapping();
-                this.socketService.emit('joinGame', { gameId: this.gameId, player: 'watcher' });
+                // Check if user is a PLAYER first (this takes precedence over watcher)
+                if (game.table.northPlayer?.id === userId) {
+                  this.myPosition = 'north';
+                  this.updatePositionMapping();
+                  this.socketService.joinGame(this.gameId!, this.myPosition);
+                } else if (game.table.southPlayer?.id === userId) {
+                  this.myPosition = 'south';
+                  this.updatePositionMapping();
+                  this.socketService.joinGame(this.gameId!, this.myPosition);
+                } else if (game.table.eastPlayer?.id === userId) {
+                  this.myPosition = 'east';
+                  this.updatePositionMapping();
+                  this.socketService.joinGame(this.gameId!, this.myPosition);
+                } else if (game.table.westPlayer?.id === userId) {
+                  this.myPosition = 'west';
+                  this.updatePositionMapping();
+                  this.socketService.joinGame(this.gameId!, this.myPosition);
+                } else {
+                  // Not a player - check if they're a watcher or if this is watcher mode
+                  const isUserWatcher = game.table.watchers?.some(
+                    (watcher: any) => watcher.id === userId
+                  );
+                  
+                  // User is watching this game
+                  this.isWatcherMode = true;
+                  this.myPosition = 'south'; // Default position for display purposes
+                  this.updatePositionMapping();
+                  this.socketService.emit('joinGame', { gameId: this.gameId, player: 'watcher' });
+                }
               }
+              
+              // Set initial game state
+              this.game = game;
+              this.playerReadyState = game.playerReady || {};
+              this.lastCompletedTrickCount = game.gameState?.completedTricks?.length || 0;
+              this.updateGameStateText();
+              if (this.ctx) {
+                this.renderTable();
+              }
+            },
+            error: (error) => {
+              console.error('Error loading game:', error);
             }
-            
-            // Set initial game state
-            this.game = game;
-            this.playerReadyState = game.playerReady || {};
-            this.lastCompletedTrickCount = game.gameState?.completedTricks?.length || 0;
-            this.updateGameStateText();
-            if (this.ctx) {
-              this.renderTable();
-            }
-          },
-          error: (error) => {
-            console.error('Error loading game:', error);
-          }
-        });
+          });
+        }, 100); // 100ms delay to allow socket reconnection
       }
     });
   }

@@ -412,10 +412,11 @@ export class AIPlayer {
    * 2. Special case: if 5+ trumps including red-1, lead red-1
    * 3. Continue leading highest trump until opponents are out of trumps
    * 4. Exhaust trumps from other players while minimizing point loss (early game)
-   * 5. In mid-game (tricks 5-7), be conservative about leading trumps if saving one for last trick
-   * 6. Play non-trump cards after exhausting trumps
-   * 7. Regain control with trumps if opponents win a trick
-   * 8. Save a trump for the last trick (unless no points in discard)
+   * 5. Once opponents are out of trumps, switch to non-trumps and save trumps for regaining control
+   * 6. In mid-game (tricks 5-7), be conservative about leading trumps if saving one for last trick
+   * 7. Play non-trump cards after exhausting trumps
+   * 8. Regain control with trumps if opponents win a trick
+   * 9. Save a trump for the last trick (unless no points in discard)
    */
   private playAsBidder(playableCards: Card[], currentTrick: CurrentTrick, positionInOrder: number): string {
     const tricksPlayed = this.completedTricks.length;
@@ -450,7 +451,10 @@ export class AIPlayer {
       
       // STRATEGY 3: If I don't have the highest trump, play highest non-point trump to draw it out
       // This forces opponents to use their high trumps
-      if (tricksPlayed < 5 && trumps.length > 0 && !highestTrump) {
+      // BUT: If opponents are out of trumps, switch to non-trumps instead
+      const opponentsOutOfTrumps = this.areOpponentsLikelyOutOfTrumps();
+      
+      if (tricksPlayed < 5 && trumps.length > 0 && !highestTrump && !opponentsOutOfTrumps) {
         const nonPointTrumps = trumps.filter(c => !this.isPointCard(c));
         if (nonPointTrumps.length > 0) {
           // Lead HIGHEST non-point trump to draw out opponent's high trumps
@@ -462,9 +466,17 @@ export class AIPlayer {
         trumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
         return trumps[0].id;
       }
+
+      // STRATEGY 4: If opponents are out of trumps, switch to non-trumps and save trumps for control
+      if (opponentsOutOfTrumps && nonTrumps.length > 0 && trumps.length > 0) {
+        this.logger.debug(`[${this.position}] Bidder detected opponents out of trumps, switching to non-trumps and keeping ${trumps.length} trump(s) for control`);
+        // Play highest non-trump to win tricks
+        nonTrumps.sort((a, b) => b.value - a.value);
+        return nonTrumps[0].id;
+      }
       
-      // Early game: exhaust trumps with standard strategy
-      if (tricksPlayed < 5 && trumps.length > 0) {
+      // Early game: exhaust trumps with standard strategy (unless opponents are already out)
+      if (tricksPlayed < 5 && trumps.length > 0 && !opponentsOutOfTrumps) {
         // If we still have non-point trumps, continue leading them to exhaust opponents
         const nonPointTrumps = trumps.filter(c => !this.isPointCard(c));
         if (nonPointTrumps.length > 0) {
@@ -633,6 +645,39 @@ export class AIPlayer {
               }
               // Only point trumps available, play lowest
               trumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
+              return trumps[0].id;
+            }
+          }
+        }
+        
+        // If partner led non-trump, check if we should play higher to secure the trick
+        if (partnerLed && !this.isTrumpCard(partnerCard) && partnerCard.color !== 'bird') {
+          const partnerSuit = partnerCard.color as Suit;
+          
+          // Check if partner's card is the highest outstanding in the suit
+          const isHighestInSuit = this.isHighestOutstandingInSuit(partnerCard, currentTrick);
+          
+          if (!isHighestInSuit) {
+            // Partner's card is not the highest - check if we can play meaningfully higher
+            const sameSuitCards = playableCards.filter(c => 
+              c.color === partnerSuit && !this.isTrumpCard(c)
+            );
+            
+            const higherCards = sameSuitCards.filter(c => c.value > partnerCard.value);
+            
+            if (higherCards.length > 0) {
+              // We have higher cards in the same suit - play the lowest one that's higher
+              higherCards.sort((a, b) => a.value - b.value);
+              this.logger.debug(`[${this.position}] Partner led non-highest ${partnerCard.color}-${partnerCard.value}, playing higher card ${higherCards[0].color}-${higherCards[0].value} to secure`);
+              return higherCards[0].id;
+            }
+            
+            // Can't go higher in suit, check if we can trump it
+            const trumps = this.getTrumpCards(playableCards);
+            if (trumps.length > 0) {
+              // Trump to secure the trick, use lowest trump
+              trumps.sort((a, b) => this.trumpValue(a) - this.trumpValue(b));
+              this.logger.debug(`[${this.position}] Partner led non-highest ${partnerCard.color}-${partnerCard.value}, trumping with ${trumps[0].color}-${trumps[0].value || 'bird'} to secure`);
               return trumps[0].id;
             }
           }
@@ -876,6 +921,27 @@ export class AIPlayer {
   }
 
   /**
+   * Get left opponent (counterclockwise)
+   */
+  private getLeftOpponent(position: PlayerPosition): PlayerPosition {
+    const order: PlayerPosition[] = ['north', 'east', 'south', 'west'];
+    const idx = order.indexOf(position);
+    // Left opponent is 2 positions counterclockwise (or -2 in the array)
+    return order[(idx + 2) % 4];
+  }
+
+  /**
+   * Get right opponent (clockwise)
+   */
+  private getRightOpponent(position: PlayerPosition): PlayerPosition {
+    const partner = this.getPartner(position);
+    const opponents = this.getOpponents(position);
+    // Return the opponent that's not the left opponent
+    const leftOpp = this.getLeftOpponent(position);
+    return opponents[0] === leftOpp ? opponents[1] : opponents[0];
+  }
+
+  /**
    * Check if both opponents have passed in the bidding
    */
   private haveBothOpponentsPassed(opponents: [PlayerPosition, PlayerPosition], biddingHistory: Array<{ player: PlayerPosition; bid: number | 'pass' | 'check' }>): boolean {
@@ -926,6 +992,74 @@ export class AIPlayer {
    */
   private hasPointsInDiscards(): boolean {
     return this.discardedCards.some(c => this.isPointCard(c));
+  }
+
+  /**
+   * Check if opponents are out of trumps
+   * Uses precise counting: 12 total trumps (10 trump suit + bird + red-1)
+   * Trumps with opponents = 12 - trumps in my hand - trumps played - trumps with partner
+   */
+  private areOpponentsLikelyOutOfTrumps(): boolean {
+    if (!this.trumpSuit) {
+      return false;
+    }
+
+    const TOTAL_TRUMPS = 12; // 10 cards of trump suit + bird + red-1
+    
+    // Count trumps in my current hand
+    const trumpsInMyHand = this.getTrumpCards(this.hand).length;
+    
+    // Count trumps played in completed tricks
+    let trumpsPlayed = 0;
+    for (const trick of this.completedTricks) {
+      for (const cardPlay of trick.cards) {
+        if (this.isTrumpCard(cardPlay.card)) {
+          trumpsPlayed++;
+        }
+      }
+    }
+    
+    // Calculate trumps still with opponents and partner
+    const trumpsUnaccountedFor = TOTAL_TRUMPS - trumpsInMyHand - trumpsPlayed;
+    
+    // If unaccounted trumps <= 0, opponents definitely have no trumps
+    if (trumpsUnaccountedFor <= 0) {
+      this.logger.debug(`[${this.position}] Opponents definitely out of trumps: ${trumpsInMyHand} in hand, ${trumpsPlayed} played, ${trumpsUnaccountedFor} remaining`);
+      return true;
+    }
+    
+    // Also check if opponents have explicitly failed to follow trump leads
+    // This gives us certainty even if partner might have trumps
+    const leftOpponent = this.getLeftOpponent(this.position);
+    const rightOpponent = this.getRightOpponent(this.position);
+    let leftOpponentFailedToFollowTrump = false;
+    let rightOpponentFailedToFollowTrump = false;
+
+    for (const trick of this.completedTricks) {
+      const leadCard = trick.cards[0].card;
+      const isTrumpLead = this.isTrumpCard(leadCard);
+      
+      if (isTrumpLead) {
+        for (const cardPlay of trick.cards) {
+          const card = cardPlay.card;
+          const isTrump = this.isTrumpCard(card);
+          
+          if (cardPlay.player === leftOpponent && !isTrump) {
+            leftOpponentFailedToFollowTrump = true;
+          } else if (cardPlay.player === rightOpponent && !isTrump) {
+            rightOpponentFailedToFollowTrump = true;
+          }
+        }
+      }
+    }
+
+    // Both opponents have shown they're out
+    if (leftOpponentFailedToFollowTrump && rightOpponentFailedToFollowTrump) {
+      this.logger.debug(`[${this.position}] Both opponents failed to follow trump leads`);
+      return true;
+    }
+
+    return false;
   }
 
   /**
@@ -1272,6 +1406,39 @@ export class AIPlayer {
     }
     
     return true; // No higher trump is outstanding
+  }
+
+  /**
+   * Check if a non-trump card is the highest outstanding card in its suit
+   * Returns true if no higher card of the same color exists (not played and not in my hand)
+   */
+  private isHighestOutstandingInSuit(card: Card, trick: CurrentTrick): boolean {
+    if (this.isTrumpCard(card) || card.color === 'bird') return false;
+    
+    const cardSuit = card.color as Suit;
+    const cardValue = card.value;
+    
+    // Get all cards that have been played
+    const seenCards = [...this.completedTricks.flatMap(t => t.cards.map(c => c.card)), 
+                       ...trick.cards.map(c => c.card)];
+    
+    // Check if any higher card of the same suit is still outstanding
+    for (let value = cardValue + 1; value <= 14; value++) {
+      const hasBeenSeen = seenCards.some(c => 
+        c.color === cardSuit && c.value === value
+      );
+      
+      const inMyHand = this.hand.some(c =>
+        c.color === cardSuit && c.value === value
+      );
+      
+      if (!hasBeenSeen && !inMyHand) {
+        // Higher card in this suit is still outstanding
+        return false;
+      }
+    }
+    
+    return true; // No higher card in this suit is outstanding
   }
 
   /**
