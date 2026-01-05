@@ -895,3 +895,79 @@
     }
   }
 }
+
+// Mobile responsive styles
+@media (max-width: 768px) {
+  .game-container {
+    overflow: auto;
+  }
+
+  .navbar {
+    .nav-content {
+      padding: 0 12px;
+
+      h1 {
+        font-size: 18px;
+      }
+
+      .nav-actions {
+        gap: 8px;
+
+        .user-info {
+          font-size: 12px;
+        }
+
+        .btn-leave {
+          font-size: 12px;
+          padding: 6px 12px;
+        }
+      }
+    }
+  }
+
+  .content {
+    padding: 0;
+    justify-content: center;
+    align-items: flex-start;
+    overflow: auto;
+    height: auto;
+    flex: 0 0 auto;
+  }
+
+  .card-table {
+    transform: scale(0.4);
+    transform-origin: top center;
+    margin: 0;
+    height: 716px;
+  }
+
+  // Scale down and reposition popups and dialogs
+  .bidding-panel {
+    position: fixed !important;
+    bottom: auto !important;
+    top: 50% !important;
+    left: 50% !important;
+    right: auto !important;
+    transform: translate(-50%, -50%) scale(0.4) !important;
+    min-width: 500px;
+  }
+
+  .trump-selection,
+  .scoring-popup,
+  .winner-popup,
+  .dialog-content {
+    transform: scale(0.4);
+    transform-origin: center;
+  }
+
+  .bid-winner-flash {
+    .bid-winner-content {
+      transform: scale(0.4);
+    }
+  }
+
+  .got-the-rest-panel {
+    transform: scale(0.4);
+    right: 10px;
+  }
+}

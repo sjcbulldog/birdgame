@@ -931,3 +931,61 @@
     padding: 0 30px 24px;
   }
 }
+
+// Mobile responsive styles
+@media (max-width: 768px) {
+  .navbar {
+    .nav-content {
+      padding: 0 12px;
+
+      h1 {
+        font-size: 20px;
+      }
+
+      .nav-actions {
+        gap: 12px;
+
+        .user-info-container {
+          .user-info {
+            font-size: 12px;
+          }
+
+          .attributions-link {
+            font-size: 11px;
+          }
+        }
+      }
+    }
+  }
+
+  .content {
+    padding: 20px 12px;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  // Hide logged-in users list on mobile
+  .logged-in-users {
+    display: none;
+  }
+
+  // Change cards grid to single column
+  .cards-grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    padding: 0;
+    width: 100%;
+  }
+
+  .card {
+    // No scaling - keep at 100%
+
+    .card-title {
+      padding: 12px;
+
+      h3 {
+        font-size: 16px;
+      }
+    }
+  }
+}

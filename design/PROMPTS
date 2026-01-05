@@ -55,8 +55,16 @@ When AI is playing and their partner took the bid, if their partner leads a trum
 
 Create a mobile site for cell phones.  For the home page, do not show the list of players logged into the site and show the tables vertically one below another.  The tables show have the same look but should be scaled about 25% smaller so a single table will fit on the cell phone screen.
 
+Keep the mobile layout, but scale the tables back up to 100%
+
+In the game view, remove the game state in the middle of the header.
+
+On cell phone devices, scale the game view to 75% of its current size.
+
+On the mobile site, scale the game view to 50% and be sure it is horizontally centered.
+
+On the mobile site, the game has its lower left hand corner about the center of the screen.  I would like the center of the game view to be in the center of the screen.
+
+On the mobile site the bidding panel is way to the right and not visible.
+
 # Todo List
-
-
-
-Mobile site play
